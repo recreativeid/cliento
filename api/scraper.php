@@ -1,14 +1,138 @@
 <?php
 /**
- * Client Reach AI - Google Maps Scraper Engine
- * Handles 3 territory selection methods, candidate preview, deep scraping, and history recording.
+ * cliento - Google Maps collection entry point.
+ * Browser collection starts in the Chrome extension. JSON imports are
+ * authenticated and persisted through source_import.php.
  */
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/google_places.php';
+require_once __DIR__ . '/open_sources.php';
+require_once __DIR__ . '/cloud_scraper.php';
+require_once __DIR__ . '/dorking_hunter.php';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $rawInput = file_get_contents('php://input');
 $jsonInput = !empty($rawInput) ? json_decode($rawInput, true) : [];
 $action = $_GET['action'] ?? ($jsonInput['action'] ?? ($_POST['action'] ?? 'preview'));
+
+// 0. Cloud Multi-API (Waterfall: Apify -> Outscraper -> SerpApi -> Google Places)
+if ($action === 'cloud_status') {
+    jsonResponse([
+        'success' => true,
+        'providers' => cloudScraperGetStatus()
+    ]);
+}
+
+if ($action === 'cloud_scrape') {
+    $q = trim($_GET['query'] ?? ($jsonInput['query'] ?? ($_POST['query'] ?? '')));
+    $limit = (int)($_GET['limit'] ?? ($jsonInput['limit'] ?? ($_POST['limit'] ?? 25)));
+    $preferred = trim($_GET['provider'] ?? ($jsonInput['provider'] ?? ($_POST['provider'] ?? '')));
+    if (empty($q)) {
+        $cat = trim($_GET['category'] ?? ($jsonInput['category'] ?? ($_POST['category'] ?? 'bisnis')));
+        $loc = trim($_GET['location'] ?? ($jsonInput['location'] ?? ($_POST['location'] ?? 'Indonesia')));
+        $q = $cat . ' di ' . $loc;
+    }
+    $res = cloudScrapeWaterfall($q, $limit, $preferred ?: null);
+    jsonResponse($res, $res['success'] ? 200 : 400);
+}
+
+// 0b. Social Media & Direct WhatsApp Hunter (DuckDuckGo Dorking Engine)
+if ($action === 'dork_hunt') {
+    $cat = trim($_GET['category'] ?? ($jsonInput['category'] ?? ($_POST['category'] ?? 'bisnis')));
+    $loc = trim($_GET['location'] ?? ($jsonInput['location'] ?? ($_POST['location'] ?? 'Indonesia')));
+    $platform = trim($_GET['platform'] ?? ($jsonInput['platform'] ?? ($_POST['platform'] ?? 'all')));
+    $limit = (int)($_GET['limit'] ?? ($jsonInput['limit'] ?? ($_POST['limit'] ?? 25)));
+
+    $res = dorkingHuntWhatsAppLeads($cat, $loc, $platform, $limit);
+    jsonResponse($res);
+}
+
+// 0c. Local Chrome Engine with Incremental Auto-Save and 45s CAPTCHA Popup
+if ($action === 'run_local_scrape') {
+    $q = trim($_GET['query'] ?? ($jsonInput['query'] ?? ($_POST['query'] ?? '')));
+    $limit = (int)($_GET['limit'] ?? ($jsonInput['limit'] ?? ($_POST['limit'] ?? 25)));
+    $headless = (bool)($_GET['headless'] ?? ($jsonInput['headless'] ?? ($_POST['headless'] ?? true)));
+
+    if (empty($q)) {
+        $cat = trim($_GET['category'] ?? ($jsonInput['category'] ?? ($_POST['category'] ?? 'bisnis')));
+        $loc = trim($_GET['location'] ?? ($jsonInput['location'] ?? ($_POST['location'] ?? 'Indonesia')));
+        $q = $cat . ' di ' . $loc;
+    }
+
+    $nodeScript = escapeshellarg(__DIR__ . '/../scripts/local_headless_scraper.js');
+    $cmd = 'node ' . $nodeScript . ' --query=' . escapeshellarg($q) . ' --limit=' . $limit . ' --headless=' . ($headless ? 'true' : 'false');
+
+    if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+        pclose(popen('start /B ' . $cmd, 'r'));
+    } else {
+        pclose(popen($cmd . ' > /dev/null 2>&1 &', 'r'));
+    }
+
+    jsonResponse([
+        'success' => true,
+        'message' => 'Mesin lokal Chrome berhasil dimulai di latar belakang laptop Anda.',
+        'query' => $q,
+        'limit' => $limit
+    ]);
+}
+
+if ($action === 'local_scrape_status') {
+    $storageDir = __DIR__ . '/../storage';
+    $progressFile = $storageDir . '/local_scrape_progress.json';
+    $failoverFile = $storageDir . '/local_scrape_failover.json';
+
+    if (!file_exists($progressFile)) {
+        jsonResponse(['success' => true, 'status' => 'idle', 'collected_count' => 0, 'places' => []]);
+    }
+
+    $raw = @file_get_contents($progressFile);
+    $data = json_decode($raw, true) ?: ['status' => 'idle', 'collected_count' => 0, 'places' => []];
+
+    $failover = null;
+    if (file_exists($failoverFile)) {
+        $failoverRaw = @file_get_contents($failoverFile);
+        $failover = json_decode($failoverRaw, true);
+    }
+    $data['failover'] = $failover;
+    $data['success'] = true;
+
+    jsonResponse($data);
+}
+
+// Never mix non-Google business candidates into the Google Maps workflow.
+if (in_array($action, ['preview', 'scan_territory', 'scrape'], true)) {
+    jsonResponse([
+        'success' => false,
+        'source' => 'google_maps_extension',
+        'message' => 'Buka Google Maps, klik Mulai scraping di ekstensi Chrome, lalu impor JSON hasilnya.',
+        'import_endpoint' => 'api/source_import.php'
+    ], 409);
+}
+
+// Non-secret health check used by setup screens and deployment diagnostics.
+if ($action === 'google_places_status') {
+    jsonResponse([
+        'success' => true,
+        'configured' => googlePlacesIsConfigured(),
+        'max_pages' => defined('GOOGLE_PLACES_MAX_PAGES') ? GOOGLE_PLACES_MAX_PAGES : 3,
+        'message' => googlePlacesIsConfigured()
+            ? 'Google Places API aktif.'
+            : 'Google Places API belum aktif. Isi GOOGLE_MAPS_API_KEY di config.local.php.'
+    ]);
+}
+
+if ($action === 'open_source_catalog') {
+    jsonResponse([
+        'success' => true,
+        'primary_sources' => ['google_maps_extension'],
+        'sources' => getOpenSourceCatalog(),
+        'policy' => [
+            'contact_data' => 'Nomor telepon/WhatsApp hanya disimpan jika tercantum pada sumber publik.',
+            'ratings' => 'Rating dan jumlah ulasan Google tidak diestimasi dari data OSM.',
+            'browser_verification' => 'Scraping Google Maps dimulai pengguna di ekstensi, diekspor sebagai JSON, lalu diimpor ke sistem.'
+        ]
+    ]);
+}
 
 // 1. Keyword Suggestion Autocomplete
 if ($action === 'suggest') {
@@ -1985,12 +2109,10 @@ function scanTerritoryAllSectors($bbox, $centerLat = -7.47, $centerLng = 110.22,
             $r['extratags']['opening_hours'] ?? ''
         );
 
-        $rating = 4.5;
-        $reviews = 25;
-        if (!empty($r['importance'])) {
-            $rating = round(min(5.0, 4.0 + ((float)$r['importance'] * 2)), 1);
-            $reviews = max(10, round((float)$r['importance'] * 500));
-        }
+        // OSM importance is a search relevance score, not a rating or review
+        // count. Leave Google-only fields empty unless a source supplies them.
+        $rating = 0;
+        $reviews = 0;
 
         $places[] = [
             'id' => count($places) + 1,
@@ -2028,9 +2150,14 @@ function scanTerritoryAllSectors($bbox, $centerLat = -7.47, $centerLng = 110.22,
     ];
 }
 
+// Optional server adapter; never fall back to non-Google business data.
+function scrapeRealPlaces($rawQuery, $locationName, $centerLat, $centerLng, $radiusKm = 5, $count = 20, $bbox = null) {
+    return googlePlacesSearch($rawQuery, $locationName, $centerLat, $centerLng, $radiusKm, $count, $bbox);
+}
+
 // REAL MAP SCRAPING ENGINE (Live data from OpenStreetMap / Nominatim)
 // If no places exist in the selected boundary, it returns an empty array. Does NOT generate fake data.
-function scrapeRealPlaces($rawQuery, $locationName, $centerLat, $centerLng, $radiusKm = 5, $count = 20, $bbox = null) {
+function scrapeOsmPlaces($rawQuery, $locationName, $centerLat, $centerLng, $radiusKm = 5, $count = 20, $bbox = null) {
     $q = trim($rawQuery);
     if (empty($q)) $q = 'sekolah';
 
@@ -2117,9 +2244,10 @@ function scrapeRealPlaces($rawQuery, $locationName, $centerLat, $centerLng, $rad
                                 'lng' => $pLon,
                                 'social_media' => $item['website'] ?? '-',
                                 'opening_hours' => $item['opening_hours'] ?? '-',
-                                'rating' => 4.6,
-                                'reviews_count' => 35,
-                                'source' => $item['source'] ?? 'harvest'
+                                'rating' => isset($item['rating']) ? (float)$item['rating'] : 0,
+                                'reviews_count' => isset($item['reviews_count']) ? (int)$item['reviews_count'] : 0,
+                                'source' => $item['source'] ?? 'harvest',
+                                'source_name' => $item['source_name'] ?? 'Master Database'
                             ];
                         }
                     }
@@ -2396,7 +2524,13 @@ function scrapeRealPlaces($rawQuery, $locationName, $centerLat, $centerLng, $rad
 
         $pmh = curl_multi_init();
         $pHandles = [];
-        $photonBbox = !empty($bbox) && count($bbox) >= 4 ? sprintf('%.5f,%.5f,%.5f,%.5f', $bbox[2], $bbox[0], $bbox[3], $bbox[1]) : null;
+        // Normalize the incoming bbox first. Regions data is stored as
+        // [minLat, minLng, maxLat, maxLng], while Photon expects
+        // [minLng, minLat, maxLng, maxLat]. Using raw indexes here could move
+        // the fallback search to a completely different part of the country.
+        $photonBbox = !empty($bbox) && count($bbox) >= 4
+            ? sprintf('%.5f,%.5f,%.5f,%.5f', $minLng, $minLat, $maxLng, $maxLat)
+            : null;
 
         foreach ($searchTerms as $st) {
             $pParams = [
@@ -2517,14 +2651,12 @@ function scrapeRealPlaces($rawQuery, $locationName, $centerLat, $centerLng, $rad
             $rawHours
         );
 
-        $rating = 4.5;
-        $reviews = 35;
-        if (!empty($r['importance'])) {
-            $rating = round(min(5.0, 4.0 + ($r['importance'] * 2)), 1);
-            $reviews = max(15, (int)($r['importance'] * 600));
-        }
+        // OSM has no Google rating/review data. Keep these fields empty rather
+        // than presenting an estimated score as if it came from Google.
+        $rating = 0;
+        $reviews = 0;
 
-        $insights = generateTriChannelInsights($name, $categoryName, $rating, $reviews, $phone, $lat, $lng);
+        $insights = generateTriChannelInsights($name, $categoryName, $rating, $reviews, $phone, $lat, $lng, 'osm');
 
         $places[] = [
             'id' => $idx + 1,
@@ -2545,15 +2677,13 @@ function scrapeRealPlaces($rawQuery, $locationName, $centerLat, $centerLng, $rad
             'source_type' => 'Peta Spasial Nyata',
             'source_color' => '#16a34a',
             'source_icon' => 'fa-map-location-dot',
+            'source_ids' => sourceProvenanceForPlace('osm', $website),
+            'contact_source' => $phone !== '' ? 'osm' : '',
             'insights' => $insights
         ];
 
         if (count($places) >= $count) break;
     }
-
-    // 4. HYBRID MULTI-SOURCE MERGER: Automatically enrich missing phone/website using AI Directory Resolver
-    // Strictly mapped 1:1 by ID, matching exact place name and address to ensure NO mismatched numbers.
-    enrichPlacesWithHybridDirectory($places, $locationName);
 
     return $places;
 }
@@ -2629,115 +2759,6 @@ function extractRawWebsiteFromOsmItem($r) {
 }
 
 /**
- * Hybrid Multi-Source Directory Enrichment
- * Parallel 1:1 ID-bound resolver for missing phone and website data
- */
-function enrichPlacesWithHybridDirectory(&$places, $locationName) {
-    if (empty($places)) return;
-
-    $missingItems = [];
-    foreach ($places as $idx => $p) {
-        $ph = trim((string)($p['phone'] ?? ''));
-        if (empty($ph) || $ph === '-' || strlen($ph) < 6) {
-            $missingItems[] = [
-                'id' => (int)$p['id'],
-                'name' => $p['name'],
-                'category' => $p['category'] ?? '',
-                'address' => $p['address'] ?? $locationName
-            ];
-        }
-    }
-
-    if (empty($missingItems)) return;
-
-    $apiKey = defined('GEMINI_API_KEY') && !empty(GEMINI_API_KEY) ? GEMINI_API_KEY : (getenv('GEMINI_API_KEY') ?: '');
-    if (empty($apiKey)) return;
-
-    // Process up to 15 items per batch
-    $batch = array_slice($missingItems, 0, 15);
-
-    $prompt = "Kamu adalah sistem verifikasi data kontak direktori bisnis & instansi resmi di Indonesia.\n"
-        . "Berikut daftar tempat di wilayah {$locationName}:\n"
-        . json_encode($batch, JSON_UNESCAPED_UNICODE) . "\n\n"
-        . "Tugasmu: Berikan nomor telepon resmi (telepon kantor PSTN berkode area atau seluler/WhatsApp) dan website/medsos resmi untuk masing-masing tempat di atas dari direktori publik resmi (seperti Kemdikbud, Google Maps, direktori bisnis).\n\n"
-        . "ATURAN KETAT & MUTLAK:\n"
-        . "1. Setiap nomor dan website HARUS SESUAI 100% dengan ID, nama tempat, dan alamatnya. DILARANG KERAS menukar nomor antar tempat!\n"
-        . "2. Jika satu tempat tidak diketahui nomor telepon resminya secara pasti, tulis tanda strip (\"-\"). JANGAN MENGARANG ATAU MEMBUAT NOMOR PALSU.\n"
-        . "3. Kembalikan HANYA array JSON valid tanpa markdown:\n"
-        . '[{"id": 1, "phone": "...", "website": "..."}]';
-
-    $payload = json_encode([
-        'contents' => [
-            ['parts' => [['text' => $prompt]]]
-        ],
-        'generationConfig' => [
-            'temperature' => 0.1,
-            'maxOutputTokens' => 800
-        ]
-    ]);
-
-    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=" . $apiKey;
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 6);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-    $res = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($httpCode === 200 && $res) {
-        $json = json_decode($res, true);
-        $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? '';
-        if ($text) {
-            $cleanJson = trim(preg_replace('/^```(?:json)?|```$/m', '', $text));
-            $resolved = json_decode($cleanJson, true);
-            if (is_array($resolved)) {
-                // Strict 1:1 ID Mapping to guarantee NO mismatched numbers
-                $resolvedMap = [];
-                foreach ($resolved as $r) {
-                    if (isset($r['id'])) {
-                        $resolvedMap[(int)$r['id']] = $r;
-                    }
-                }
-
-                foreach ($places as $idx => &$place) {
-                    $pid = (int)$place['id'];
-                    if (isset($resolvedMap[$pid])) {
-                        $matched = $resolvedMap[$pid];
-                        $newPhone = trim((string)($matched['phone'] ?? ''));
-                        $newWeb = trim((string)($matched['website'] ?? ''));
-
-                        if (!empty($newPhone) && $newPhone !== '-' && strlen($newPhone) >= 6) {
-                            $place['phone'] = $newPhone;
-                        }
-                        if (!empty($newWeb) && $newWeb !== '-' && strlen($newWeb) >= 4 && (strpos($newWeb, '.') !== false || strpos($newWeb, '@') === 0)) {
-                            $place['social_media'] = $newWeb;
-                            $place['website'] = $newWeb;
-                        }
-
-                        // Re-generate insights with newly verified contact
-                        $place['insights'] = generateTriChannelInsights(
-                            $place['name'],
-                            $place['category'],
-                            $place['rating'],
-                            $place['reviews_count'],
-                            $place['phone'],
-                            $place['lat'],
-                            $place['lng']
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
  * Intelligent Business Contact & Operational Hours Enrichment
  */
 function enrichContactInfo($name, $category = '', $address = '', $phone = '', $website = '', $hours = '') {
@@ -2770,62 +2791,30 @@ function enrichContactInfo($name, $category = '', $address = '', $phone = '', $w
  * Channel Beta: WhatsApp & Communication Readiness
  * Channel Gamma: Geospatial Cadastral Registry (OpenStreetMap)
  */
-function generateTriChannelInsights($baseName, $categoryTitle, $rating, $reviews, $phoneNum, $itemLat, $itemLng) {
-    $rawPhone = trim((string)$phoneNum);
-    $hasPhone = !empty($rawPhone) && $rawPhone !== '-' && strlen($rawPhone) >= 6;
-    $digits = preg_replace('/[^0-9]/', '', $rawPhone);
-    if (substr($digits, 0, 1) === '0') $digits = '62' . substr($digits, 1);
-    $isWa = (substr($digits, 0, 3) === '628') && strlen($digits) >= 10 && strlen($digits) <= 14;
-
+function generateTriChannelInsights($baseName, $categoryTitle, $rating, $reviews, $phoneNum, $itemLat, $itemLng, $source = 'osm') {
+    $hasPhone = trim((string)$phoneNum) !== '' && $phoneNum !== '-';
+    $isGoogle = $source === 'google_places_api';
+    $title = $isGoogle ? 'Google Places API' : 'OpenStreetMap';
     return [
-        'triple_verified' => true,
-        'verification_score' => $hasPhone ? '100% (Lokasi & Kontak Valid)' : '100% (Lokasi Valid, Tanpa Nomor)',
+        'triple_verified' => false,
+        'verification_score' => 'Data sesuai sumber; belum diverifikasi independen',
+        'provenance' => ['source_name' => $title, 'source_type' => $source, 'source_url' => $isGoogle ? '' : 'https://www.openstreetmap.org/', 'license' => $isGoogle ? 'Google Maps Platform Terms' : 'ODbL 1.0'],
         'channel_alpha' => [
-            'code' => 'GMAPS',
-            'title' => 'Google Maps',
-            'channel_name' => 'Google Maps (Profil Usaha & Direktori)',
-            'theme_color' => '#2563eb',
-            'bg_color' => '#eff6ff',
-            'border_color' => '#bfdbfe',
-            'icon' => 'fa-brands fa-google',
-            'rating' => $rating ?: '-',
-            'reviews_count' => $reviews ?: '-',
-            'status' => 'Terdaftar di Peta',
-            'wa_verified' => $isWa ? 'Nomor WhatsApp Siap Dihubungi' : ($hasPhone ? 'Telepon Kantor (PSTN)' : 'Belum Ada Nomor Kontak'),
-            'foot_traffic' => 'Komersial / Publik',
-            'popularity_score' => 'Terverifikasi Geospasial',
-            'summary' => 'Profil usaha terdaftar pada peta digital dengan koordinat geospasial presisi.'
+            'title' => $title, 'channel_name' => $title,
+            'rating' => $rating ?: null, 'reviews_count' => $reviews ?: null,
+            'status' => 'Tercantum pada sumber', 'popularity_score' => 'Tidak tersedia',
+            'summary' => $isGoogle ? 'Atribut diberikan Google Places API.' : 'Data OSM tidak mencakup rating dan ulasan Google.'
         ],
         'channel_beta' => [
-            'code' => 'WHATSAPP',
-            'title' => 'Saluran Outreach',
-            'channel_name' => 'Kesiapan WhatsApp & Direct Outreach',
-            'theme_color' => '#059669',
-            'bg_color' => '#f0fdf4',
-            'border_color' => '#bbf7d0',
-            'icon' => 'fa-brands fa-whatsapp',
-            'sentiment_positive' => $isWa ? 'Siap Chat WA' : ($hasPhone ? 'Telepon Suara' : 'Perlu Kunjungan / Riset'),
-            'price_tier' => 'B2B',
-            'price_tier_label' => 'Target Outreach B2B',
-            'satisfaction_grade' => $isWa ? 'Prioritas Tinggi (WA Aktif)' : 'Data Spasial',
-            'recommendation_rate' => $isWa ? 'Bisa Chat Otomatis' : 'Kontak Manual',
-            'service_focus' => $isWa ? 'WhatsApp Blast & Chat Prospek' : 'Lokasi Fisik',
-            'summary' => $isWa ? 'Memiliki nomor seluler WhatsApp yang siap dihubungi untuk penawaran layanan.' : ($hasPhone ? 'Memiliki nomor telepon kantor (PSTN).' : 'Belum ada nomor telepon terdaftar di direktori peta.')
+            'sentiment_positive' => $hasPhone ? 'Nomor tercantum' : 'Nomor tidak tersedia',
+            'price_tier' => 'Tidak tersedia', 'price_tier_label' => 'Tidak dinilai',
+            'satisfaction_grade' => 'Tidak dinilai', 'recommendation_rate' => 'Perlu verifikasi manual',
+            'summary' => 'Nomor telepon pada sumber tidak membuktikan akun WhatsApp aktif.'
         ],
         'channel_gamma' => [
-            'code' => 'OSM',
-            'title' => 'OpenStreetMap',
-            'channel_name' => 'OpenStreetMap (Verifikasi Geospasial & Batas Wilayah)',
-            'theme_color' => '#16a34a',
-            'bg_color' => '#f0fdf4',
-            'border_color' => '#bbf7d0',
-            'icon' => 'fa-solid fa-map-location-dot',
-            'gps_accuracy' => '±2.5 meter (Presisi)',
-            'zoning' => 'Wilayah Administratif',
-            'road_access' => 'Akses Jalan Fisik Terverifikasi',
-            'cadastral_status' => '100% Dalam Wilayah',
-            'coordinates' => $itemLat . ', ' . $itemLng,
-            'summary' => 'Koordinat lokasi telah diverifikasi berada 100% di dalam polygon batas wilayah resmi.'
+            'coordinates' => $itemLat . ', ' . $itemLng, 'gps_accuracy' => 'Tidak dinilai',
+            'zoning' => 'Sesuai sumber', 'road_access' => 'Tidak dinilai', 'cadastral_status' => 'Perlu pemeriksaan peta',
+            'summary' => 'Koordinat mengikuti sumber; tidak ada jaminan akurasi GPS atau batas resmi.'
         ]
     ];
 }
@@ -2975,10 +2964,10 @@ if ($action === 'scrape') {
             $phone = !empty($cp['phone']) && $cp['phone'] !== '-' && $cp['phone'] !== 'null' ? $cp['phone'] : '-';
             $website = !empty($cp['social_media']) && $cp['social_media'] !== '-' ? $cp['social_media'] : (!empty($cp['website']) ? $cp['website'] : '-');
             $hours = !empty($cp['opening_hours']) ? $cp['opening_hours'] : '-';
-            $rating = (float)($cp['rating'] ?? 4.5);
-            $reviews = (int)($cp['reviews_count'] ?? 30);
+            $rating = (float)($cp['rating'] ?? 0);
+            $reviews = (int)($cp['reviews_count'] ?? 0);
 
-            $insights = generateTriChannelInsights($name, $cat, $rating, $reviews, $phone, $lat, $lng);
+            $insights = generateTriChannelInsights($name, $cat, $rating, $reviews, $phone, $lat, $lng, $cp['source'] ?? 'osm');
 
             $scrapedData[] = [
                 'id' => count($scrapedData) + 1,
@@ -2995,8 +2984,8 @@ if ($action === 'scrape') {
                 'reviews_count' => $reviews,
                 'status' => 'none',
                 'source' => $cp['source'] ?? 'osm',
-                'source_name' => 'Peta Digital & Wilayah',
-                'source_type' => 'Peta Spasial Nyata',
+                'source_name' => 'OpenStreetMap / Nominatim / Photon',
+                'source_type' => 'open_data_map',
                 'source_color' => '#16a34a',
                 'source_icon' => 'fa-map-location-dot',
                 'insights' => $insights
@@ -3019,9 +3008,6 @@ if ($action === 'scrape') {
             if (count($scrapedData) >= $limit) break;
         }
     }
-
-    // 3. Enrich missing contacts strictly 1:1 by ID using Gemini API
-    enrichPlacesWithHybridDirectory($scrapedData, $locationName);
 
     if (empty($scrapedData)) {
         jsonResponse([
@@ -3151,153 +3137,10 @@ if ($action === 'scrape') {
     }
 }
 
-// 4. Import from Chrome Extension (Google Maps Real-Time Extraction)
-if ($action === 'import_chrome') {
-    $input = !empty($jsonInput) ? $jsonInput : $_POST;
-    $items = $input['items'] ?? [];
-    $locationName = trim($input['location'] ?? 'Wilayah Target');
-    $category = trim($input['category'] ?? 'Bisnis');
-
-    if (empty($items) || !is_array($items)) {
-        jsonResponse(['success' => false, 'message' => 'Tidak ada data tempat yang diterima dari ekstensi.'], 400);
-    }
-
-    $savedPlaces = [];
-    $seen = [];
-
-    foreach ($items as $idx => $it) {
-        $name = trim($it['name'] ?? '');
-        if (empty($name)) continue;
-        $lower = strtolower($name);
-        if (isset($seen[$lower])) continue;
-        $seen[$lower] = true;
-
-        $cat = !empty($it['category']) ? $it['category'] : $category;
-        $addr = !empty($it['address']) ? $it['address'] : $locationName;
-        $phone = !empty($it['phone']) ? $it['phone'] : '-';
-        $website = !empty($it['website']) && $it['website'] !== '-' ? $it['website'] : (!empty($it['social_media']) ? $it['social_media'] : '-');
-        $hours = !empty($it['opening_hours']) ? $it['opening_hours'] : '-';
-        $rating = (float)($it['rating'] ?? 4.5);
-        $reviews = (int)($it['reviews_count'] ?? 25);
-        $lat = (float)($it['lat'] ?? 0);
-        $lng = (float)($it['lng'] ?? 0);
-
-        $insights = generateTriChannelInsights($name, $cat, $rating, $reviews, $phone, $lat, $lng);
-
-        $savedPlaces[] = [
-            'id' => count($savedPlaces) + 1,
-            'osm_id' => null,
-            'name' => $name,
-            'category' => $cat,
-            'address' => $addr,
-            'phone' => $phone,
-            'lat' => $lat,
-            'lng' => $lng,
-            'social_media' => $website,
-            'opening_hours' => $hours,
-            'rating' => $rating,
-            'reviews_count' => $reviews,
-            'status' => 'none',
-            'source' => 'gmaps',
-            'source_name' => 'Google Maps Asli',
-            'source_type' => 'Google Maps Real-Time',
-            'source_color' => '#2563eb',
-            'source_icon' => 'fa-brands fa-google',
-            'insights' => $insights
-        ];
-    }
-
-    // Save to scraping_history
-    $historyId = 0;
-    try {
-        $authUser = getAuthUser($pdo);
-        $authUserId = $authUser ? $authUser['id'] : null;
-        $stmt = $pdo->prepare("INSERT INTO scraping_history (query_name, method, location_name, target_category, total_found, user_id) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([
-            $category . ' di ' . $locationName . ' (Google Maps)',
-            'gmaps_chrome',
-            $locationName,
-            $category,
-            count($savedPlaces),
-            $authUserId
-        ]);
-        $historyId = (int)$pdo->lastInsertId();
-
-        $itemStmt = $pdo->prepare("INSERT INTO scraped_items (history_id, name, address, phone, lat, lng, category, social_media, opening_hours, rating, reviews_count, status, insights_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none', ?)");
-        foreach ($savedPlaces as &$item) {
-            $insightsJson = !empty($item['insights']) ? json_encode($item['insights'], JSON_UNESCAPED_UNICODE) : null;
-            $itemStmt->execute([
-                $historyId,
-                $item['name'],
-                $item['address'],
-                $item['phone'],
-                $item['lat'],
-                $item['lng'],
-                $item['category'],
-                $item['social_media'],
-                $item['opening_hours'],
-                $item['rating'],
-                $item['reviews_count'],
-                $insightsJson
-            ]);
-            $item['db_id'] = (int)$pdo->lastInsertId();
-        }
-    } catch (\Exception $e) {
-        error_log('import_chrome DB error: ' . $e->getMessage());
-    }
-
-    // Support multi-sector rotation batch imports
-    $cacheFile = __DIR__ . '/../data/latest_chrome_import.json';
-    $isPartial = !empty($input['is_partial']);
-    $isFinal = !empty($input['is_final']) || !$isPartial;
-
-    if ($isPartial && file_exists($cacheFile)) {
-        $prevData = json_decode(@file_get_contents($cacheFile), true);
-        if ($prevData && !empty($prevData['items']) && is_array($prevData['items'])) {
-            $existingNames = array_map(function($i) { return strtolower(trim($i['name'])); }, $prevData['items']);
-            foreach ($savedPlaces as $sp) {
-                if (!in_array(strtolower(trim($sp['name'])), $existingNames)) {
-                    $sp['id'] = count($prevData['items']) + 1;
-                    $prevData['items'][] = $sp;
-                    $existingNames[] = strtolower(trim($sp['name']));
-                }
-            }
-            $savedPlaces = $prevData['items'];
-        }
-    }
-
-    // Cache latest import for instant client retrieval
-    @file_put_contents($cacheFile, json_encode([
-        'success' => true,
-        'history_id' => $historyId,
-        'category' => $category,
-        'location' => $locationName,
-        'total_items' => count($savedPlaces),
-        'is_final' => $isFinal,
-        'items' => $savedPlaces
-    ], JSON_UNESCAPED_UNICODE));
-
-    jsonResponse([
-        'success' => true,
-        'message' => 'Berhasil mengimpor ' . count($savedPlaces) . ' data dari Google Maps.',
-        'history_id' => $historyId,
-        'count' => count($savedPlaces),
-        'is_final' => $isFinal,
-        'items' => $savedPlaces
-    ]);
-}
-
-// 5. Retrieve Latest Chrome Import
-if ($action === 'get_latest_chrome_import') {
-    $cacheFile = __DIR__ . '/../data/latest_chrome_import.json';
-    if (file_exists($cacheFile)) {
-        $raw = file_get_contents($cacheFile);
-        $json = json_decode($raw, true);
-        if ($json) {
-            jsonResponse($json);
-        }
-    }
-    jsonResponse(['success' => false, 'message' => 'Belum ada data impor Google Maps.'], 404);
+// Legacy browser automation endpoints are retired. Verification now exports a
+// single reviewed JSON record for explicit import through source_import.php.
+if (in_array($action, ['import_chrome', 'get_latest_chrome_import'], true)) {
+    jsonResponse(['success' => false, 'message' => 'Impor JSON hasil ekstensi melalui menu Impor hasil Google Maps.'], 410);
 }
 
 jsonResponse(['success' => false, 'message' => 'Aksi scraping tidak dikenali'], 400);

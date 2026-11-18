@@ -1,31 +1,19 @@
 {
   "manifest_version": 3,
-  "name": "ClientReach AI - Google Maps Assistant",
-  "version": "1.3.2",
-  "description": "Asisten otomasi ClientReach AI untuk ekstraksi kontak WhatsApp & data bisnis langsung dari Google Maps.",
-  "permissions": [
-    "storage"
-  ],
-  "host_permissions": [
-    "https://www.google.com/maps/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*"
-  ],
+  "name": "cliento - Google Maps Scraper",
+  "version": "1.5.0",
+  "description": "Ambil data bisnis Google Maps setelah klik pengguna, unduh rekap JSON, lalu impor ke cliento.",
   "action": {
     "default_popup": "popup.html",
-    "default_title": "ClientReach AI Scraper"
+    "default_title": "cliento Google Maps Scraper"
   },
   "content_scripts": [
     {
       "matches": [
-        "https://www.google.com/maps/*"
+        "https://www.google.com/maps/*",
+        "https://www.google.co.id/maps/*"
       ],
-      "js": [
-        "content.js"
-      ],
-      "css": [
-        "styles.css"
-      ],
+      "js": ["content.js"],
       "run_at": "document_idle"
     }
   ]

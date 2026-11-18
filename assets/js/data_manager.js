@@ -782,8 +782,8 @@ window.DataManager = {
             address: r.address || `${r.subdistrict || ''} ${r.city || ''}`.trim() || 'Indonesia',
             phone: r.phone || '-',
             social_media: r.website || '-',
-            rating: r.rating || '4.5',
-            reviews_count: r.reviews_count || '15',
+            rating: r.rating || 0,
+            reviews_count: r.reviews_count || 0,
             opening_hours: r.opening_hours || '-',
             lat: r.lat,
             lng: r.lng
@@ -1076,8 +1076,8 @@ window.DataManager = {
                     category: r.category || r.category_name || r.sector || 'Umum',
                     social_media: r.website || '',
                     opening_hours: r.opening_hours || '',
-                    rating: 4.5,
-                    reviews_count: 25,
+                    rating: r.rating || 0,
+                    reviews_count: r.reviews_count || 0,
                     status: 'none'
                 }))
             };

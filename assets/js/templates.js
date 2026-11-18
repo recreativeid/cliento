@@ -1,5 +1,5 @@
 /**
- * Client Reach AI - WhatsApp Message Template Manager
+ * cliento - WhatsApp Message Template Manager
  * Manage message templates per category, handle dynamic tag variables,
  * live preview in WhatsApp mockup, and WhatsApp link generation.
  */
@@ -37,7 +37,7 @@ const TemplateManager = {
 
         // Static default templates
         this.categories = [
-            { id: 1, category_name: 'Cafe & Resto', greeting_type: 'santai', message_body: 'Halo kak, salam kenal dari tim Client Reach! Kami notice {nama_tempat} di {alamat} review-nya bagus banget (⭐ {rating}). Ada sedikit insight optimasi promo digital nih kak, boleh kami share?' },
+            { id: 1, category_name: 'Cafe & Resto', greeting_type: 'santai', message_body: 'Halo kak, salam kenal dari tim cliento! Kami notice {nama_tempat} di {alamat} review-nya bagus banget (⭐ {rating}). Ada sedikit insight optimasi promo digital nih kak, boleh kami share?' },
             { id: 2, category_name: 'Sekolah & Bimbel', greeting_type: 'formal', message_body: 'Selamat Pagi/Siang Bapak/Ibu pimpinan {nama_tempat}. Kami dari konsultan digital cliento ingin membagikan studi kasus peningkatan pendaftaran siswa/peserta baru melalui otomatisasi outreach.' },
             { id: 3, category_name: 'Klinik & Salon', greeting_type: 'formal', message_body: 'Halo kak/dokter di {nama_tempat}, kami perhatikan reputasi klinik kakak sangat baik di {alamat}. Kami punya solusi reminder & follow up otomatis pasien via WhatsApp.' },
             { id: 4, category_name: 'Umum / Bisnis Lainnya', greeting_type: 'formal', message_body: 'Halo dengan pemilik/manajemen {nama_tempat}? Kami melihat peluang ekspansi prospek potensial di wilayah {alamat}. Boleh izin terhubung singkat kak?' }
@@ -103,7 +103,7 @@ const TemplateManager = {
             .replace(/\{nama_tempat\}/g, 'Kopi Senja Utama')
             .replace(/\{kategori\}/g, this.activeCategory)
             .replace(/\{alamat\}/g, 'Jl. Pemuda No. 45, Magelang')
-            .replace(/\{rating\}/g, '4.8')
+            .replace(/\{rating\}/g, 'belum tersedia')
             .replace(/\{telepon\}/g, '+62 812-3456-7890');
 
         previewEl.innerHTML = sampleText.replace(/\n/g, '<br>');
@@ -220,7 +220,7 @@ const TemplateManager = {
             .replace(/\{nama_tempat\}/g, item.name || 'Tempat')
             .replace(/\{kategori\}/g, item.category || 'Usaha')
             .replace(/\{alamat\}/g, item.address || 'lokasi')
-            .replace(/\{rating\}/g, item.rating || '5.0')
+            .replace(/\{rating\}/g, item.rating || 'belum tersedia')
             .replace(/\{telepon\}/g, item.phone || '');
 
         // Format phone number
@@ -246,7 +246,7 @@ const TemplateManager = {
             .replace(/\{nama_tempat\}/g, item.name || 'Tempat')
             .replace(/\{kategori\}/g, item.category || 'Usaha')
             .replace(/\{alamat\}/g, item.address || 'lokasi')
-            .replace(/\{rating\}/g, item.rating || '5.0')
+            .replace(/\{rating\}/g, item.rating || 'belum tersedia')
             .replace(/\{telepon\}/g, item.phone || '');
     },
 

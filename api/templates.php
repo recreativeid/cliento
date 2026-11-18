@@ -1,6 +1,6 @@
 <?php
 /**
- * Client Reach AI - WhatsApp Message Template Manager API
+ * cliento - WhatsApp Message Template Manager API
  * Manage message templates per business category, add new categories, and interpolate variables.
  */
 require_once __DIR__ . '/../config.php';
@@ -28,7 +28,7 @@ if ($action === 'list') {
             $tpl = $tplMap[$cName] ?? [
                 'category_name' => $cName,
                 'greeting_type' => 'formal',
-                'message_body' => 'Hallo kak dgn pemilik/team manajemen {nama_tempat}? Kami dari tim Client Reach AI tertarik dengan potensi bisnis kakak di {alamat}. Boleh kami sharing solusi singkat untuk optimasi sales? Terima kasih!'
+                'message_body' => 'Hallo kak dgn pemilik/team manajemen {nama_tempat}? Kami dari tim cliento tertarik dengan potensi bisnis kakak di {alamat}. Boleh kami sharing solusi singkat untuk optimasi sales? Terima kasih!'
             ];
             $result[] = [
                 'category_id' => $c['id'],
@@ -96,7 +96,7 @@ if ($action === 'create_category') {
         $newId = (int)$pdo->lastInsertId();
 
         // Create default template for this new category
-        $defaultBody = 'Hallo kak dgn pemilik/team manajemen {nama_tempat}? Kami dari Client Reach AI melihat perkembangan usaha kakak di {alamat} sangat menarik. Kami ingin berbagi solusi otomasi sales untuk memperluas jangkauan pelanggan. Apakah ada waktu luang sebentar kak? Terima kasih!';
+        $defaultBody = 'Hallo kak dgn pemilik/team manajemen {nama_tempat}? Kami dari cliento melihat perkembangan usaha kakak di {alamat} sangat menarik. Kami ingin berbagi solusi otomasi sales untuk memperluas jangkauan pelanggan. Apakah ada waktu luang sebentar kak? Terima kasih!';
         $tplStmt = $pdo->prepare("INSERT INTO templates (category_name, greeting_type, message_body) VALUES (?, 'formal', ?) ON CONFLICT DO NOTHING");
         $tplStmt->execute([$categoryName, $defaultBody]);
 

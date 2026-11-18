@@ -1,306 +1,160 @@
-# CLIENTO - DOKUMENTASI SISTEM & LAPORAN TEKNIS
+# CLIENTO - DOKUMENTASI SISTEM
 
-> **Dokumen Teknis Lengkap Cara Kerja Sistem Cliento (Sales Intelligence Platform)**  
-> Versi: 2.1 | Terakhir Diperbarui: 2026-09-28
+Versi: 2.2 | Diperbarui: 2026-11-18
 
----
+## 1. Ringkasan
 
-## 1. Ringkasan Eksekutif
+Cliento adalah aplikasi pengambilan dan pengelolaan prospek bisnis. Alur
+pengambilan saat ini menggunakan **Google Maps melalui ekstensi Chrome**.
+Pengguna memulai scraping pada browser, mengunduh JSON, lalu mengimpor hasilnya
+ke aplikasi. Sistem menyimpan riwayat, menampilkan rekap, menyediakan filter,
+penyimpanan ke arsip, dan ekspor Excel.
 
-**Cliento** adalah platform Sales Intelligence berbasis web yang dirancang untuk membantu tim sales menemukan, menganalisis, dan menghubungi calon klien bisnis secara efisien. Sistem ini menggabungkan:
+Alur ekstensi tidak membutuhkan Google Cloud atau Places API key. Peta dan
+data wilayah pada aplikasi membantu memilih target; pengambilan bisnis pada
+UI utama tidak memakai OSM atau fallback sumber bisnis lain. Data historis
+dari sumber lama tetap memiliki asalnya sendiri.
 
-- Teknologi scraping data bisnis dari OpenStreetMap (Overpass API) dan Nominatim/Photon
-- Peta interaktif Leaflet.js dengan visualisasi zona target
-- AI copywriting (Google Gemini) untuk outreach WhatsApp
-- Manajemen arsip dan template pesan
+## 2. Arsitektur
 
-### Keunggulan Utama
-| Fitur | Deskripsi |
-|-------|-----------|
-| Scraping Multi-Sumber | Overpass OSM + Nominatim + Photon Komoot |
-| Cakupan Nasional | 38 Provinsi, 509+ Kab/Kota se-Indonesia |
-| Deteksi Lengkap | Deteksi dan panen otomatis seluruh bisnis per wilayah |
-| Master Database | Data terpanen tersimpan permanen, bisa diquery ulang |
-| Live Filter | Pencarian keyword, filter kategori, filter kontak HP |
-| AI Outreach | Google Gemini Vision untuk naskah sales personal |
-| Ekspor Data | Download Excel (.xlsx) instan via SheetJS |
+Frontend memakai HTML, CSS, JavaScript, Leaflet untuk peta, Chart.js untuk
+dashboard, SheetJS untuk ekspor Excel, dan FontAwesome. Ekstensi memakai
+Chrome Manifest V3 dan membaca halaman Google Maps setelah tindakan pengguna.
 
----
+Backend memakai PHP dan PDO. Database instalasi dapat menggunakan SQLite
+atau PostgreSQL/Supabase sesuai konfigurasi privat. Tabel `scraping_history`
+dan `scraped_items` menyimpan impor dan hasilnya. `insights_json` menyimpan
+provenance, ketersediaan metrik, dan informasi kontak bersumber. Integrasi
+Gemini menyusun pesan outreach berdasarkan data yang tersedia.
 
-## 2. Arsitektur Sistem
+### Alur data utama
 
-### 2.1 Stack Teknologi
-```
-Frontend:
-  - HTML5 (Single Page Application)
-  - Vanilla JavaScript ES6+ (modular)
-  - CSS3 (SaaS Minimalist Theme)
-  - Leaflet.js (peta interaktif)
-  - Chart.js (analitik dashboard)
-  - SheetJS (ekspor Excel)
-  - FontAwesome 6 + Google Fonts Poppins
-
-Backend:
-  - PHP 8.x Native (REST API)
-  - SQLite 3 (database utama, WAL mode)
-  - JSONL flat-file (Master Database bisnis)
-
-External APIs:
-  - Overpass API (OpenStreetMap query)
-  - Nominatim (geocoding & boundary)
-  - Photon Komoot (spatial search)
-  - Google Gemini API (AI copywriting)
+```text
+Pengguna memilih lokasi/kategori di aplikasi
+    -> Membuka pencarian Google Maps
+    -> Memulai scraping dari panel ekstensi (maksimal 100 bisnis)
+    -> Ekstensi membaca hasil dan detail yang tersedia
+    -> Pengguna mengunduh JSON
+    -> Pengguna login dan mengimpor JSON ke cliento
+    -> Validasi + deduplikasi dalam satu impor
+    -> Simpan scraping_history + scraped_items
+    -> Tabel rekap / filter / riwayat
+    -> Simpan arsip / ekspor Excel
 ```
 
-### 2.2 Alur Data Utama
-```
-[User Pilih Wilayah] 
-    |
-    v
-[Cek Master Database (JSONL)] -----> [Data Ada] --> [Tampilkan + Filter]
-    |                                                    |
-    v                                                    v
-[Data Belum Ada]                                   [Buka Database]
-    |                                               [Export Excel]
-    v                                               [Simpan Arsip]
-[Deteksi Lengkap / Background Worker]
-    |
-    v
-[Overpass API + Nominatim + Photon]
-    |
-    v
-[Simpan ke JSONL (data/places_*.jsonl)]
-    |
-    v
-[Data Tersedia di Master DB]
-```
+Pengguna dapat menghentikan proses ekstensi. Ekstensi tidak mengirim hasil
+otomatis ke server dan tidak melewati CAPTCHA. Perubahan struktur Google Maps
+dapat memengaruhi kelengkapan pengambilan. Kegagalan membaca satu kolom tidak
+diisi dengan data buatan.
 
-### 2.3 Struktur Direktori
-```
-Client_Reach_ai/
-  index.html              - SPA utama (semua UI)
-  config.php              - Konfigurasi global + koneksi DB
-  PROJECT_MAP.md          - Peta konteks proyek (referensi AI)
-  SYSTEM_DOCS.md          - Dokumen ini
+### Struktur berkas utama
 
-  api/
-    master_db.php          - Query Master Database (JSONL)
-    scraper.php            - Engine scraping cerdas
-    harvest_queue.php      - Antrean & worker manager
-    harvest_worker.php     - Background worker process
-    full_harvest.php       - Harvester lengkap Overpass
-    regions.php            - Hierarki wilayah & GeoJSON
-    gemini.php             - Google Gemini AI integration
-    auth.php               - Autentikasi & OTP email
-    customers.php          - CRUD database customer
-    templates.php          - Kelola template WA
-    archives.php           - Arsip Google Drive style
-    history.php            - Riwayat scraping
-    settings.php           - Pengaturan profil
-
-  assets/
-    css/style.css          - Desain SaaS putih-biru
-    js/
-      app.js               - SPA router & dashboard
-      scraper.js           - Scraper Client + Master DB module
-      harvest.js           - Background harvest manager
-      map.js               - Leaflet engine
-      regions_data.js      - Data geospasial Indonesia
-      templates.js         - Template WhatsApp manager
-      archives.js          - Google Drive folder explorer
-      auth.js              - Controller autentikasi
-      customers.js         - Controller database customer
-
-  data/
-    indonesia_regions.json - Master list 509 Kab/Kota
-    places_*.jsonl         - Data bisnis terpanen per wilayah
-    harvest_queue.json     - Status antrean worker
-    harvest_worker.lock    - Lock file proses aktif
-
-  database/
-    client_reach.db        - SQLite database
-    schema.sql             - Definisi skema
-    init.php               - Inisialisasi & migrasi
+```text
+index.html                  UI utama
+config.php                  Konfigurasi dan koneksi database
+api/source_import.php       Impor JSON terautentikasi
+api/open_sources.php        Normalisasi, validasi, dan penyimpanan impor
+api/history.php             Riwayat dan penyimpanan hasil ke arsip
+api/archives.php            Pengelolaan arsip
+api/google_places.php       Adapter Places server opsional, tidak otomatis
+api/scraper.php             Status/katalog dan endpoint scraper legacy
+api/gemini.php              Copywriting Gemini
+api/auth.php                Autentikasi
+assets/js/scraper.js         Peluncuran Maps, impor, rekap, dan ekspor
+assets/js/archives.js        Tampilan arsip
+extension/manifest.json     Konfigurasi ekstensi Chrome
+extension/content.js        Scraping Google Maps yang dimulai pengguna
+extension/README.md         Pemasangan dan penggunaan ekstensi
 ```
 
----
+## 3. Pengambilan dan rekap
 
-## 3. Alur Kerja Menu Utama
+1. Pasang atau muat ulang ekstensi Chrome versi 1.5.0.
+2. Pilih wilayah atau titik target dan kategori pada aplikasi, lalu buka Maps.
+3. Klik **Mulai scraping** pada ekstensi, maksimal 100 bisnis per proses.
+   Gunakan **Ambil profil yang terbuka** untuk profil tunggal, atau klik
+   **Hentikan** jika hasil sudah cukup.
+4. Unduh JSON, pilih file pada bagian impor aplikasi, lalu konfirmasi impor.
+5. Data tersimpan pada akun pengguna dan tampil pada rekap hasil.
+6. Gunakan filter, buka rincian sumber, simpan ke arsip, atau ekspor ke Excel.
 
-### 3.1 Dashboard
-- Menampilkan metrik utama: Total Leads, Prospek, Koleksi, WhatsApp
-- Chart.js: Sales Funnel (area line) + Sebaran Industri (donut)
-- Data diambil dari database SQLite (scraping_history, scraped_items)
+Data bisnis yang didukung mencakup nama, kategori, alamat, telepon, website,
+jam buka, koordinat, rating, dan jumlah ulasan jika teramati. Rating dan jumlah
+ulasan adalah metrik agregat, bukan seluruh teks ulasan. Telepon tidak dianggap
+otomatis sebagai WhatsApp. URL profil dan waktu pengamatan dipertahankan.
 
-### 3.2 Scraping Client (Menu Utama)
+Impor dibatasi 2 MB dan 500 record per file pada backend. Ekstensi mengambil
+maksimal 100 bisnis per proses dan dapat menampung 500 bisnis pada rekap dari
+beberapa proses. Record dengan URL profil Google Maps yang sama digabung dalam
+satu impor. Mengimpor ulang pada sesi lain dapat membuat riwayat baru.
 
-#### Mode 1: Wilayah Administratif
-1. User memilih Provinsi -> Kab/Kota -> (opsional) Kecamatan -> Kelurahan
-2. Peta menampilkan garis merah batas wilayah (polygon)
-3. Sistem otomatis cek Master Database
-4. Jika data tersedia: tampil badge hijau + tombol "Buka Database"
-5. Jika belum: tampil opsi "Deteksi Seluruh Bisnis di Wilayah Ini"
+Nilai yang tidak tersedia tidak ditebak. Kolom database metrik memakai `0`
+sebagai nilai kompatibilitas untuk data hilang; metadata `insights_json.metrics`
+membedakan metrik teramati dari metrik yang tidak tersedia. Ekspor menyertakan
+atribusi sumber. Provenance ikut dipertahankan ketika riwayat disalin ke arsip.
 
-#### Mode 2: Titik Peta & Radius
-1. User klik titik di peta
-2. Atur slider radius (1-25 KM)
-3. Peta menampilkan lingkaran radius merah
+## 4. API
 
-#### Scraping Targeted (Keyword/Kategori)
-1. User ketik keyword bebas ATAU pilih kategori preset
-2. Klik "Scrape Data Lengkap"
-3. Sistem scrape via Overpass + Nominatim
-4. Hasil tampil di tabel dengan filter lead qualification
+- `POST api/source_import.php`: memerlukan login; menerima JSON `records`
+  beserta metadata sumber dan `context` opsional. Hasil sukses mengembalikan
+  `history_id` dan item tersimpan. Validasi gagal mengembalikan HTTP 400.
+- `api/scraper.php?action=google_places_status`: status konfigurasi adapter
+  tanpa mengembalikan key.
+- `api/scraper.php?action=preview`, `scan`, atau `scrape`: HTTP 409;
+  gunakan pengambilan ekstensi dan impor JSON.
+- `api/scraper.php?action=import_chrome` dan `get_latest_chrome_import`:
+  endpoint lama, HTTP 410; tidak digunakan untuk sinkronisasi otomatis.
+- `api/scraper.php?action=open_source_catalog`: katalog sumber legacy untuk
+  kompatibilitas, bukan penentu sumber pengambilan pada UI utama.
+- `api/auth.php`: login, registrasi, verifikasi akun, dan pemeriksaan sesi.
+- `api/history.php` dan `api/archives.php`: riwayat serta pengelolaan arsip.
 
-#### Deteksi Lengkap Wilayah (Perekaman Otomatis)
-1. Tombol "Deteksi Seluruh Bisnis di Wilayah Ini"
-2. Memicu background worker (harvest_queue.php -> harvest_worker.php)
-3. Worker scrape semua kategori: Toko, Kuliner, Kesehatan, Kantor, Jasa, Pendidikan, Pabrik, Hotel, Hiburan
-4. Data disimpan ke file JSONL (data/places_*.jsonl)
-5. Progress bar + polling status realtime
+Detail format, validasi URL Google Maps, dan batas data dijelaskan dalam
+[panduan impor](OPEN_SOURCES.md).
 
-#### Database Explorer
-1. Buka via tombol "Buka Database" setelah Deteksi selesai
-2. Filter Bar:
-   - Pencarian keyword (debounce 400ms)
-   - Dropdown filter kategori
-   - Quick filter: Semua / Punya HP / Tanpa HP
-3. Tabel data dengan pagination (50 per halaman)
-4. Aksi: WhatsApp langsung, Export Excel, Simpan ke Arsip
+## 5. Infrastruktur legacy
 
-### 3.3 Template Pesan
-- Template WhatsApp per kategori bisnis
-- Variabel tag: {nama_tempat}, {kategori}, {alamat}, {rating}, {telepon}
-- Preview mockup WhatsApp realtime
+Repository masih menyimpan implementasi lama Overpass, Nominatim, Photon,
+master database JSONL, dan worker harvest. Berkas terkait antara lain
+`api/master_db.php`, `api/harvest_queue.php`, `api/harvest_worker.php`,
+`api/full_harvest.php`, `assets/js/harvest.js`, dan `data/places_*.jsonl`.
+Alur pengambilan bisnis lama tersebut tidak dijalankan oleh UI utama saat ini.
 
-### 3.4 Koleksi Arsip
-- Folder bersarang (nested) seperti Google Drive
-- Breadcrumbs navigasi
-- Grid/List view toggle
-- Status prospek per kontak (Prospek/Belum/Ditolak)
+Data wilayah dan geometri peta tetap dapat dipakai untuk memilih lokasi.
+Keberadaan layanan geospasial atau data OSM lama tidak berarti hasil bisnis
+Google Maps dilengkapi otomatis dari sumber tersebut. Statistik jumlah bisnis
+terpanen dalam dokumentasi versi lama adalah catatan historis dan bukan
+ukuran terkini dari hasil Google Maps.
 
-### 3.5 Database Customer (Admin)
-- CRUD pelanggan
-- Verifikasi OTP email
-- Filter status & live search
+Normalizer backend mempertahankan dukungan format impor publik lama untuk
+kompatibilitas. UI pengambilan utama menggunakan Google Maps. Adapter Places
+server tetap tersedia untuk integrasi eksplisit dan tidak dipanggil otomatis;
+lihat [konfigurasi Places](GOOGLE_PLACES_SETUP.md).
 
----
+## 6. Autentikasi dan data
 
-## 4. API Endpoints
+Impor memerlukan pengguna terautentikasi dan menyimpan pemilik riwayat.
+Penyimpanan batch menggunakan transaksi: kegagalan menyimpan item membatalkan
+riwayat dan item pada transaksi tersebut. Provenance mencatat informasi sumber
+yang disampaikan pengguna, bukan verifikasi independen atau pemberian lisensi.
 
-### 4.1 Master Database API (`api/master_db.php`)
-| Endpoint | Method | Deskripsi |
-|----------|--------|-----------|
-| `?action=status&region=<nama>` | GET | Cek ketersediaan data wilayah |
-| `?action=query&region=<nama>&keyword=<x>&category=<x>&page=<n>` | GET | Query data dengan filter |
-| `?action=regions` | GET | List semua wilayah terpanen |
-| `?action=stats` | GET | Statistik global seluruh data |
+Gemini digunakan untuk pesan outreach dari data yang tersedia. Gemini tidak
+menebak kontak, website, rating, atau ulasan. Gemini Pro dan Google Maps
+Platform memiliki akses, billing, serta kuota terpisah. Ekstensi tidak
+memerlukan keduanya untuk membaca halaman yang dibuka pengguna.
 
-### 4.2 Scraper API (`api/scraper.php`)
-| Endpoint | Method | Deskripsi |
-|----------|--------|-----------|
-| `?action=scrape` | POST | Eksekusi scraping targeted |
-| `?action=preview` | GET | Preview titik bisnis |
+## 7. Menjalankan aplikasi
 
-### 4.3 Harvest Queue API (`api/harvest_queue.php`)
-| Endpoint | Method | Deskripsi |
-|----------|--------|-----------|
-| `?action=status` | GET | Status worker & antrean |
-| POST body: `{action: 'add_and_run'}` | POST | Tambah wilayah & mulai worker |
+1. Jalankan Apache XAMPP atau server PHP pada folder proyek.
+2. Akses `http://localhost/Client_Reach_ai/index.html` untuk XAMPP, atau alamat
+   server PHP yang digunakan.
+3. Konfigurasikan database instalasi pada `config.local.php` privat bila perlu.
+   Jangan menyimpan kredensial ke repository.
+4. Login memakai akun instalasi, pasang ekstensi, lalu ikuti alur impor.
 
-### 4.4 Auth API (`api/auth.php`)
-| Endpoint | Method | Deskripsi |
-|----------|--------|-----------|
-| `?action=login` | POST | Login user/admin |
-| `?action=register` | POST | Registrasi customer baru |
-| `?action=me` | GET | Verifikasi session aktif |
-| `?action=verify_otp` | POST | Verifikasi kode OTP |
+Untuk instalasi Supabase, konfigurasi koneksi disimpan pada server dan ekstensi
+PHP `pdo_pgsql` harus tersedia. Gunakan prosedur migrasi instalasi yang sesuai;
+perubahan kode ini tidak membuktikan koneksi cloud atau migrasi telah dijalankan.
 
----
-
-## 5. Data Wilayah Indonesia
-
-- **38 Provinsi** lengkap (termasuk Papua pemekaran)
-- **509+ Kabupaten/Kota** dengan koordinat & bounding box
-- Kecamatan & Kelurahan: generator dinamis berbasis koordinat
-- File referensi: `data/indonesia_regions.json`
-- Data geospasial frontend: `assets/js/regions_data.js`
-
----
-
-## 6. Keamanan & Autentikasi
-
-- Token Bearer berbasis localStorage
-- Session endpoint: `api/auth.php?action=me`
-- Role: Admin (full access) | Customer (standard access)
-- Verifikasi OTP email 6-digit (berlaku 15 menit)
-- Protected routes: Database Customer hanya Admin
-
----
-
-## 7. Data yang Sudah Terpanen (Status Saat Ini)
-
-| Wilayah | Total Bisnis | Ukuran File |
-|---------|-------------|-------------|
-| Kota Denpasar | ~4,500+ | 1.8 MB |
-| Kabupaten Badung | ~3,700+ | 1.5 MB |
-| Kabupaten Bangli | ~2,000+ | 790 KB |
-| Kota Magelang | ~800+ | 331 KB |
-| Kabupaten Buleleng | ~170+ | 69 KB |
-
-*Data terus bertambah seiring aktivitas Deteksi Wilayah.*
-
----
-
-## 8. Roadmap & Rencana Upgrade
-
-### Fase 1 (Selesai)
-- [x] Scraping multi-sumber (Overpass + Nominatim + Photon)
-- [x] Peta interaktif 2 mode (Wilayah + Radius)
-- [x] Background worker harvest otomatis
-- [x] Master Database (JSONL) + Live Filter
-- [x] Deteksi Lengkap Wilayah terintegrasi di Scraping Client
-- [x] AI Outreach Gemini Vision
-- [x] Template WhatsApp + Arsip Google Drive
-
-- [x] Integrasi Supabase Cloud PostgreSQL 17 (Terpusat & Multi-Platform)
-
-### Fase 2 (Mendatang)
-- [ ] Analisis chat WhatsApp (respon prospek otomatis)
-- [ ] Scoring prospek berbasis AI (kualifikasi otomatis)
-- [ ] Auto-outreach: sistem kirim pesan otomatis berdasarkan jadwal
-- [ ] Dashboard analitik real-time dari Supabase
-
-### Fase 3 (Jangka Panjang)
-- [ ] Multi-AI agent: AI karyawan yang berkolaborasi antar sesi
-- [ ] Auto-discovery pasar: sistem identifikasi peluang baru otomatis
-- [ ] CRM pipeline lengkap (follow-up tracking otomatis)
-- [ ] API publik untuk integrasi pihak ketiga
-
----
-
-## 9. Cara Menjalankan & Integrasi Cloud Supabase
-
-### A. Akses Lokal
-1. Server lokal: `php -S 0.0.0.0:8080` di root folder proyek.
-2. Buka browser: `http://localhost:8080/index.html` atau Apache XAMPP `http://localhost/Client_Reach_ai/index.html`.
-3. Login Pengujian:
-   - Admin: `admin` / `admin123`
-   - Customer: `customer` / `customer123`
-
-### B. Konfigurasi Cloud Database (Supabase)
-- Project ID: `vxmxzciaaeqoamsskwhp`
-- Pooler Host: `aws-0-ap-southeast-1.pooler.supabase.com` (Port 5432)
-- User: `postgres.vxmxzciaaeqoamsskwhp`
-- Simpan kredensial di file privat `config.local.php`.
-- Skrip migrasi tabel otomatis: `php database/migrate_supabase.php`.
-
-### C. Deploy ke cPanel Hosting
-1. Upload isi repository (atau clone via Git cPanel dari branch `cliento`).
-2. Buat file `config.local.php` di root cPanel dengan kredensial Supabase.
-3. Pastikan ekstensi `pdo_pgsql` aktif di menu PHP Selector cPanel.
-4. Aplikasi langsung terhubung ke database cloud yang sama secara tersinkronisasi.
-
----
-
-*Dokumen ini diperbarui secara berkala sebagai referensi teknis sistem Cliento.*
+Lihat [panduan ekstensi](extension/README.md) untuk pemasangan dan
+[panduan data](OPEN_SOURCES.md) untuk penggunaan harian.

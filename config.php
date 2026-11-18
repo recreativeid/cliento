@@ -111,9 +111,20 @@ if (!$dbConnected) {
 
 $geminiKey = $localConfig['GEMINI_API_KEY'] ?? (getenv('GEMINI_API_KEY') ?: '');
 $gmapsKey  = $localConfig['GOOGLE_MAPS_API_KEY'] ?? (getenv('GOOGLE_MAPS_API_KEY') ?: '');
+$placesEnabled = $localConfig['GOOGLE_PLACES_ENABLED'] ?? (getenv('GOOGLE_PLACES_ENABLED') ?: '');
+$placesMaxPages = $localConfig['GOOGLE_PLACES_MAX_PAGES'] ?? (getenv('GOOGLE_PLACES_MAX_PAGES') ?: 3);
+$apifyToken = $localConfig['APIFY_TOKEN'] ?? (getenv('APIFY_TOKEN') ?: '');
+$outscraperKey = $localConfig['OUTSCRAPER_API_KEY'] ?? (getenv('OUTSCRAPER_API_KEY') ?: '');
+$serpApiKey = $localConfig['SERPAPI_API_KEY'] ?? (getenv('SERPAPI_API_KEY') ?: '');
 
 define('GEMINI_API_KEY', $geminiKey);
 define('GOOGLE_MAPS_API_KEY', $gmapsKey);
+define('GOOGLE_PLACES_ENABLED', filter_var($placesEnabled, FILTER_VALIDATE_BOOLEAN));
+define('GOOGLE_PLACES_MAX_PAGES', max(1, min(3, (int)$placesMaxPages)));
+define('APIFY_TOKEN', $apifyToken);
+define('OUTSCRAPER_API_KEY', $outscraperKey);
+define('SERPAPI_API_KEY', $serpApiKey);
+
 define('APP_NAME', 'cliento');
 define('APP_SUBTITLE', 'sales intelligence');
 

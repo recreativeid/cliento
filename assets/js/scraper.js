@@ -1,5 +1,5 @@
 /**
- * Client Reach AI - Google Maps Scraper Orchestrator
+ * cliento - Google Maps Scraper Orchestrator
  * Distinct Modes:
  * 1. Mode Wilayah Administratif: Cascading Province -> Reg/City -> District -> Village with Red Boundary Polygon. NO radius.
  * 2. Mode Titik Peta & Radius: Pin on Map Click + KM Radius slider. NO administrative region dropdowns.
@@ -8,6 +8,7 @@
  */
 
 const ScraperClient = {
+    googleMapsOnly: true,
     currentQuery: {
         zoneMode: 'boundary', // 'boundary' or 'radius'
         targetMode: 'preset', // 'keyword' or 'preset'
@@ -35,7 +36,7 @@ const ScraperClient = {
         this.bindLeadFilterPills();
         this.bindAIPitchModal();
         this.bind360ModalEvents();
-        this.checkChromeReturnState();
+        this.bindSourceImport();
 
         // Connect map click: Only active when in Radius Mode
         if (window.mapEngine) {
@@ -801,9 +802,7 @@ const ScraperClient = {
                 listContainer.innerHTML = '';
                 this.candidatePlaces.forEach(p => {
                     const isOsm = (p.source === 'osm');
-                    const sourcePill = isOsm 
-                        ? `<span style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; padding: 1px 5px; border-radius: 4px; font-size: 0.62rem; font-weight: 600;"><i class="fa-solid fa-map-pin"></i> OpenStreetMap</span>`
-                        : `<span style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 1px 5px; border-radius: 4px; font-size: 0.62rem; font-weight: 600;"><i class="fa-solid fa-location-dot"></i> Google Maps</span>`;
+                    const sourcePill = `<span style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; padding: 1px 5px; border-radius: 4px; font-size: 0.62rem; font-weight: 600;"><i class="fa-solid fa-map-pin"></i> ${p.source_name || (isOsm ? 'OpenStreetMap' : 'Sumber terbuka')}</span>`;
 
                     const row = document.createElement('div');
                     row.style.cssText = 'padding: 8px 10px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem;';
@@ -817,7 +816,7 @@ const ScraperClient = {
                         </div>
                         <div style="text-align: right; white-space: nowrap;">
                             <span class="badge badge-blue" style="font-size: 0.64rem;">${p.category}</span>
-                            <span style="font-weight: 700; color: #0f172a; margin-left: 4px;"><i class="fa-solid fa-star" style="color: #f59e0b;"></i> ${p.rating}</span>
+                            <span style="font-weight: 700; color: #64748b; margin-left: 4px;">${p.rating ? `<i class="fa-solid fa-star" style="color: #f59e0b;"></i> ${p.rating}` : 'Rating tidak tersedia'}</span>
                         </div>
                     `;
                     listContainer.appendChild(row);
@@ -834,6 +833,7 @@ const ScraperClient = {
     // AUTOMATED TERRITORY SCANNING ACROSS ALL 15 SECTORS
     // ----------------------------------------------------
     async scanTerritory() {
+        if (this.googleMapsOnly) return this.showGoogleMapsReady();
         if (this.isScanningTerritory) return;
         this.isScanningTerritory = true;
 
@@ -898,6 +898,7 @@ const ScraperClient = {
     },
 
     async scanTerritoryRealMap(norm) {
+        if (this.googleMapsOnly) return {success: true, places: []};
         const viewbox = norm.viewbox;
         const queries = [
             'amenity=school', 'amenity=place_of_worship', 'amenity=hospital',
@@ -1034,12 +1035,8 @@ const ScraperClient = {
             const hours = enriched.hours;
             const website = enriched.website;
 
-            let rating = 4.6;
-            let reviews = 40;
-            if (r.importance) {
-                rating = parseFloat(Math.min(5.0, 4.0 + (parseFloat(r.importance) * 2)).toFixed(1));
-                reviews = Math.max(15, Math.round(parseFloat(r.importance) * 600));
-            }
+            let rating = null;
+            let reviews = null;
 
             const insights = this.generateTriChannelInsights(name, categoryTitle, rating, reviews, phone, lat, lng);
 
@@ -1438,7 +1435,7 @@ const ScraperClient = {
         const kecName = kecSelect?.options[kecSelect.selectedIndex]?.text || '';
         const kelName = kelSelect?.options[kelSelect.selectedIndex]?.text || '';
 
-        const locationParts = [kelName, kecName, kabName, provName].filter(x => x && !x.startsWith('--'));
+        const locationParts = [kelName, kecName, kabName, provName].map(x => (x || '').replace(/\s*\[.*?\]\s*/g, '').trim()).filter(x => x && !x.startsWith('--'));
         const locationStr = locationParts.join(', ') || 'Indonesia';
         this.currentQuery.location = locationStr;
 
@@ -1614,69 +1611,16 @@ const ScraperClient = {
         return { phone, website, hours };
     },
 
-    generateTriChannelInsights(baseName, categoryTitle, rating, reviews, phoneNum, itemLat, itemLng) {
-        const rawPhone = (phoneNum || '').trim();
-        const hasPhone = !!(rawPhone && rawPhone !== '-' && rawPhone.length >= 6);
-        let digits = rawPhone.replace(/[^0-9]/g, '');
-        if (digits.startsWith('0')) digits = '62' + digits.substring(1);
-        const isWa = digits.startsWith('628') && digits.length >= 10 && digits.length <= 14;
-
+    generateTriChannelInsights(baseName, categoryTitle, rating, reviews, phoneNum, itemLat, itemLng, source = 'osm') {
         return {
-            triple_verified: true,
-            verification_score: hasPhone ? '100% (Lokasi & Kontak Valid)' : '100% (Lokasi Valid, Tanpa Nomor)',
-            channel_alpha: {
-                code: 'GMAPS',
-                title: 'Google Maps',
-                channel_name: 'Google Maps (Profil Usaha & Direktori)',
-                theme_color: '#2563eb',
-                bg_color: '#eff6ff',
-                border_color: '#bfdbfe',
-                icon: 'fa-brands fa-google',
-                rating: rating || '-',
-                reviews_count: reviews || '-',
-                status: 'Terdaftar di Peta',
-                wa_verified: isWa ? 'Nomor WhatsApp Siap Dihubungi' : (hasPhone ? 'Telepon Kantor (PSTN)' : 'Belum Ada Nomor Kontak'),
-                foot_traffic: 'Komersial / Publik',
-                popularity_score: 'Terverifikasi Geospasial',
-                summary: 'Profil usaha terdaftar pada peta digital dengan koordinat geospasial presisi.'
-            },
-            channel_beta: {
-                code: 'WHATSAPP',
-                title: 'Saluran Outreach',
-                channel_name: 'Kesiapan WhatsApp & Direct Outreach',
-                theme_color: '#059669',
-                bg_color: '#f0fdf4',
-                border_color: '#bbf7d0',
-                icon: 'fa-brands fa-whatsapp',
-                sentiment_positive: isWa ? 'Siap Chat WA' : (hasPhone ? 'Telepon Suara' : 'Perlu Kunjungan / Riset'),
-                price_tier: 'B2B',
-                satisfaction_grade: isWa ? 'Prioritas Tinggi (WA Aktif)' : 'Data Spasial',
-                recommendation_rate: isWa ? 'Bisa Chat Otomatis' : 'Kontak Manual',
-                highlights: [
-                    isWa ? 'Nomor WhatsApp siap dihubungi untuk penawaran layanan' : 'Belum memiliki nomor WhatsApp terdaftar',
-                    'Aksesibilitas lokasi dan koordinat terverifikasi',
-                    'Data spasial riil tanpa fabrikasi atau generator acak'
-                ],
-                summary: isWa ? 'Memiliki nomor seluler WhatsApp yang siap dihubungi untuk penawaran layanan.' : (hasPhone ? 'Memiliki nomor telepon kantor (PSTN).' : 'Belum ada nomor telepon terdaftar di direktori peta.')
-            },
-            channel_gamma: {
-                code: 'OSM',
-                title: 'OpenStreetMap',
-                channel_name: 'OpenStreetMap (Verifikasi Geospasial & Batas Wilayah)',
-                theme_color: '#16a34a',
-                bg_color: '#f0fdf4',
-                border_color: '#bbf7d0',
-                icon: 'fa-solid fa-map-location-dot',
-                cadastral_status: '100% Dalam Wilayah',
-                coordinates: `${itemLat.toFixed(6)}, ${itemLng.toFixed(6)}`,
-                zoning: 'Wilayah Administratif',
-                road_access: 'Akses Jalan Fisik Terverifikasi',
-                gps_accuracy: '±2.5 meter (Presisi)',
-                summary: 'Koordinat lokasi telah diverifikasi berada 100% di dalam polygon batas administratif resmi.'
-            }
+            triple_verified: false,
+            verification_score: 'Data sesuai sumber; belum diverifikasi independen',
+            provenance: { source_name: 'OpenStreetMap', source_type: source, source_url: 'https://www.openstreetmap.org/', license: 'ODbL 1.0' },
+            channel_alpha: { title: 'OpenStreetMap', rating: rating || null, reviews_count: reviews || null, status: 'Tercantum pada sumber', popularity_score: 'Tidak tersedia', summary: 'Data OSM tidak mencakup rating dan ulasan Google.' },
+            channel_beta: { sentiment_positive: phoneNum && phoneNum !== '-' ? 'Nomor tercantum' : 'Nomor tidak tersedia', price_tier: 'Tidak tersedia', satisfaction_grade: 'Tidak dinilai', recommendation_rate: 'Perlu verifikasi manual', summary: 'Nomor telepon pada sumber tidak membuktikan akun WhatsApp aktif.' },
+            channel_gamma: { gps_accuracy: 'Tidak dinilai', zoning: 'Sesuai sumber', road_access: 'Tidak dinilai', cadastral_status: 'Perlu pemeriksaan peta', summary: 'Koordinat mengikuti sumber.' }
         };
     },
-
     humanizeCategoryName(type, name = '') {
         const map = {
             hospital: 'Rumah Sakit',
@@ -3012,6 +2956,7 @@ const ScraperClient = {
     },
 
     async fetchRealMapPlaces(queryObj) {
+        if (this.googleMapsOnly) return [];
         const q = ((queryObj && queryObj.category) || 'semua_perusahaan').trim();
         const loc = (queryObj && queryObj.location) || 'Indonesia';
         const centerLat = parseFloat(queryObj && queryObj.lat) || -7.4705;
@@ -3156,12 +3101,8 @@ const ScraperClient = {
                     const hours = enriched.hours;
                     const website = enriched.website;
 
-                    let rating = 4.5;
-                    let reviews = 35;
-                    if (r.importance) {
-                        rating = parseFloat(Math.min(5.0, 4.0 + (parseFloat(r.importance) * 2)).toFixed(1));
-                        reviews = Math.max(15, Math.round(parseFloat(r.importance) * 600));
-                    }
+                    let rating = null;
+                    let reviews = null;
 
                     const insights = this.generateTriChannelInsights(name, categoryTitle, rating, reviews, phone, lat, lng);
 
@@ -3244,7 +3185,7 @@ const ScraperClient = {
         const name = item.name || 'Bapak/Ibu Pimpinan';
         const category = item.category || 'Usaha Anda';
         const address = item.address || 'lokasi Anda';
-        const rating = item.rating || '4.8';
+        const rating = item.rating || 'belum tersedia';
         const tone = (payload && payload.tone) || 'Hangat, Sopan & Profesional';
         const selected = (payload && payload.selected_opportunities && payload.selected_opportunities.length > 0)
             ? payload.selected_opportunities
@@ -3258,11 +3199,11 @@ const ScraperClient = {
             const listStr = selected.map((o, idx) => `${idx + 1}. ${o.title}: ${o.reason}`).join('\n');
             oppSection = `Berdasarkan audit direktori bisnis kami, terdapat ${selected.length} celah peluang yang bisa ditingkatkan:\n\n${listStr}\n\nSeluruh poin di atas dapat kami integrasikan dalam satu solusi efisien.`;
         } else {
-            oppSection = `Kami mengamati reputasi dan performa bisnis ${name} di kawasan ${address}. Melalui sistem kami, kami ingin menawarkan solusi optimasi kunjungan klien terarah yang dapat diintegrasikan dengan operasional Anda.`;
+            oppSection = `Kami menemukan informasi publik bisnis ${name} di kawasan ${address}. Melalui sistem kami, kami ingin menawarkan solusi optimasi kunjungan klien terarah yang dapat diintegrasikan dengan operasional Anda.`;
         }
 
         if (tone.includes('Santai') || tone === 'casual') {
-            pitch = `Halo kak dari tim ${name}!\n\nSalam kenal dari tim cliento. Senang melihat performa rating ${rating} toko kakak di ${address}.\n\n${oppSection}\n\nKalau kakak ada waktu senggang 5 menit, boleh kami kirimkan ringkasan solusi lengkapnya via WhatsApp ini kak? Terima kasih banyak.`;
+            pitch = `Halo kak dari tim cliento!\n\nSalam kenal dari tim cliento. Kami menemukan informasi publik ${name} di ${address}; rating dari sumber: ${rating}.\n\n${oppSection}\n\nKalau kakak ada waktu senggang 5 menit, boleh kami kirimkan ringkasan solusi lengkapnya via WhatsApp ini kak? Terima kasih.`;
         } else if (tone.includes('Konsultatif')) {
             pitch = `Selamat siang Bapak/Ibu Manajemen ${name},\n\nSalam profesional dari tim cliento Sales Intelligence. Kami melakukan analisis direktori bisnis di wilayah ${address}.\n\n${oppSection}\n\nApakah kami diperkenankan mengirimkan studi kasus singkat mengenai implementasi solusi ini untuk ${name}? Terima kasih.`;
         } else {
@@ -3278,6 +3219,7 @@ const ScraperClient = {
     },
 
     async loadPreScrapeCandidates() {
+        if (this.googleMapsOnly) return this.showGoogleMapsReady();
         const countBadge = document.getElementById('preview-count-badge');
         const listContainer = document.getElementById('pre-scrape-places-list');
 
@@ -3378,9 +3320,7 @@ const ScraperClient = {
                     listContainer.innerHTML = '';
                     this.candidatePlaces.forEach(p => {
                         const isOsm = (p.source === 'osm');
-                        const sourcePill = isOsm 
-                            ? `<span style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; padding: 1px 5px; border-radius: 4px; font-size: 0.62rem; font-weight: 600;"><i class="fa-solid fa-map-pin"></i> OpenStreetMap</span>`
-                            : `<span style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 1px 5px; border-radius: 4px; font-size: 0.62rem; font-weight: 600;"><i class="fa-solid fa-location-dot"></i> Google Maps</span>`;
+                        const sourcePill = `<span style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; padding: 1px 5px; border-radius: 4px; font-size: 0.62rem; font-weight: 600;"><i class="fa-solid fa-map-pin"></i> ${p.source_name || (isOsm ? 'OpenStreetMap' : 'Sumber terbuka')}</span>`;
 
                         const row = document.createElement('div');
                         row.style.cssText = 'padding: 8px 10px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem;';
@@ -3394,7 +3334,7 @@ const ScraperClient = {
                             </div>
                             <div style="text-align: right; white-space: nowrap;">
                                 <span class="badge badge-blue">${p.category}</span>
-                                <span style="font-weight: 700; color: #0f172a; margin-left: 4px;"><i class="fa-solid fa-star" style="color: #f59e0b;"></i> ${p.rating}</span>
+                                <span style="font-weight: 700; color: #64748b; margin-left: 4px;">${p.rating ? `<i class="fa-solid fa-star" style="color: #f59e0b;"></i> ${p.rating}` : 'Rating tidak tersedia'}</span>
                             </div>
                         `;
                         listContainer.appendChild(row);
@@ -3428,6 +3368,25 @@ const ScraperClient = {
         const btnSapuGmaps = document.getElementById('btn-sapu-bersih-gmaps');
         if (btnSapuGmaps) {
             btnSapuGmaps.addEventListener('click', () => this.launchGoogleMapsCityWideScrape());
+        }
+        const btnCity = document.getElementById('btn-sapu-bersih');
+        if (btnCity) {
+            btnCity.addEventListener('click', () => this.launchGoogleMapsCityWideScrape());
+        }
+
+        const btnCloudScrape = document.getElementById('btn-cloud-waterfall-scrape');
+        if (btnCloudScrape) {
+            btnCloudScrape.addEventListener('click', () => this.executeCloudWaterfallScrape());
+        }
+
+        const btnLocalScrape = document.getElementById('btn-local-headless-scrape');
+        if (btnLocalScrape) {
+            btnLocalScrape.addEventListener('click', () => this.executeLocalChromeScrape());
+        }
+
+        const btnDorkingHunt = document.getElementById('btn-dorking-wa-hunt');
+        if (btnDorkingHunt) {
+            btnDorkingHunt.addEventListener('click', () => this.executeDorkingHunter());
         }
 
         const batchLimitSelect = document.getElementById('scraper-batch-limit');
@@ -3476,329 +3435,427 @@ const ScraperClient = {
     },
 
     async executeDeepScrape() {
-        if (!this.candidatePlaces || this.candidatePlaces.length === 0) {
-            alert(`Tidak ada data bisnis nyata yang ditemukan untuk kata kunci "${this.currentQuery.category || ''}" di wilayah "${this.currentQuery.location || ''}".\n\nSilakan coba kata kunci lain atau pilih cakupan wilayah yang lebih luas.`);
-            return;
-        }
-
-        const btn = document.getElementById('btn-execute-scrape');
-        if (btn) {
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyandingkan Data Wilayah & Kontak Google...';
-        }
-
-        try {
-            const batchLimitSelect = document.getElementById('scraper-batch-limit');
-            let selectedLimit = 25;
-            if (batchLimitSelect) {
-                const rawVal = batchLimitSelect.value;
-                if (rawVal === 'all') {
-                    selectedLimit = (this.candidatePlaces && this.candidatePlaces.length > 0) ? this.candidatePlaces.length : 9999;
-                } else {
-                    selectedLimit = parseInt(rawVal, 10) || 25;
-                }
-            }
-
-            const payload = {
-                action: 'scrape',
-                method: this.currentQuery.zoneMode,
-                category: this.currentQuery.category || 'all',
-                location: this.currentQuery.location || 'Magelang Utara',
-                lat: this.currentQuery.lat,
-                lng: this.currentQuery.lng,
-                radius: this.currentQuery.radius,
-                limit: selectedLimit,
-                candidate_places: (this.candidatePlaces && this.candidatePlaces.length > 0) ? this.candidatePlaces : null
-            };
-
-            if (this.currentQuery.zoneMode === 'boundary' && this.currentQuery.bbox) {
-                payload.bbox = this.currentQuery.bbox;
-            }
-
-            const provSelect = document.getElementById('filter-provinsi');
-            const kabSelect = document.getElementById('filter-kabupaten');
-            const kecSelect = document.getElementById('filter-kecamatan');
-
-            const provText = (provSelect?.options[provSelect.selectedIndex]?.text || '').replace(/\s*\[.*?\]\s*/g, '').trim();
-            const kabText = (kabSelect?.options[kabSelect.selectedIndex]?.text || '').replace(/\s*\[.*?\]\s*/g, '').trim();
-            const kecText = (kecSelect?.options[kecSelect.selectedIndex]?.text || '').replace(/\s*\[.*?\]\s*/g, '').trim();
-
-            if (provText && !provText.startsWith('--')) payload.province = provText;
-            if (kabText && !kabText.startsWith('--')) payload.city = kabText;
-            if (kecText && !kecText.startsWith('--')) payload.subdistrict = kecText;
-
-            const onlyWaToggle = document.getElementById('scraper-only-wa-toggle');
-            if (onlyWaToggle && onlyWaToggle.checked) {
-                payload.only_wa = true;
-                this.activeFilter = 'has_wa';
-            } else {
-                this.activeFilter = 'all';
-            }
-
-            // Sync pill buttons UI state
-            document.querySelectorAll('.lead-filter-pill').forEach(p => {
-                if (p.getAttribute('data-filter') === this.activeFilter) {
-                    p.classList.add('active');
-                } else {
-                    p.classList.remove('active');
-                }
-            });
-
-            let data = null;
-            const isStaticHost = window.location.hostname.includes('github.io') || window.location.protocol === 'file:';
-
-            if (!isStaticHost) {
-                try {
-                    const res = await fetch('api/scraper.php?action=scrape', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    if (res.ok) {
-                        data = await res.json();
-                    } else if (res.status === 404) {
-                        // Static host without PHP
-                    } else {
-                        try { data = await res.json(); } catch(e) {}
-                    }
-                } catch (netErr) {
-                    console.warn('Scraper API network error, falling back to static generator...', netErr);
-                }
-            }
-
-            // Fallback for static environments
-            if (!data || !data.success || !data.items) {
-                data = this.generateStaticDeepScrapedLeads(payload);
-            }
-
-            if (data.success && data.items) {
-                if (data.items.length === 0) {
-                    alert(`Tidak ada data bisnis nyata yang ditemukan untuk kata kunci "${this.currentQuery.category || ''}" di wilayah "${this.currentQuery.location || ''}".`);
-                    return;
-                }
-                if (this.currentQuery.zoneMode === 'boundary' && window.mapEngine) {
-                    this.scrapedResults = data.items.map(item => {
-                        const enriched = this.enrichPlaceContact(item, this.currentQuery.location);
-                        item.phone = (item.phone && item.phone !== '-' && item.phone !== 'null') ? item.phone : enriched.phone;
-                        item.social_media = (item.social_media && item.social_media !== '-' && item.social_media !== 'null') ? item.social_media : enriched.website;
-                        item.website = (item.website && item.website !== '-' && item.website !== 'null') ? item.website : enriched.website;
-                        item.opening_hours = (item.opening_hours && item.opening_hours !== '-' && item.opening_hours !== 'null') ? item.opening_hours : enriched.hours;
-                        const safe = window.mapEngine.ensurePointInsideBoundary(item.lat, item.lng);
-                        item.lat = safe[0];
-                        item.lng = safe[1];
-                        return item;
-                    });
-                } else {
-                    this.scrapedResults = data.items.map(item => {
-                        const enriched = this.enrichPlaceContact(item, this.currentQuery.location);
-                        item.phone = (item.phone && item.phone !== '-' && item.phone !== 'null') ? item.phone : enriched.phone;
-                        item.social_media = (item.social_media && item.social_media !== '-' && item.social_media !== 'null') ? item.social_media : enriched.website;
-                        item.website = (item.website && item.website !== '-' && item.website !== 'null') ? item.website : enriched.website;
-                        item.opening_hours = (item.opening_hours && item.opening_hours !== '-' && item.opening_hours !== 'null') ? item.opening_hours : enriched.hours;
-                        return item;
-                    });
-                }
-
-                this.renderScrapedResultsTable();
-
-                document.getElementById('scraper-setup-view').style.display = 'none';
-                document.getElementById('scraped-results-view').style.display = 'block';
-
-                if (window.DataManager) window.DataManager.loadTreeData();
-                if (window.App) window.App.refreshDashboardStats();
-            } else {
-                alert('Gagal scraping: ' + (data.message || 'Terjadi kesalahan'));
-            }
-        } catch (e) {
-            alert('Kesalahan ekstraksi: ' + e.message);
-        } finally {
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Ambil Data Sesuai Filter di Atas';
-            }
-        }
+        this.launchGoogleMapsAutoScrape();
     },
 
-    // ----------------------------------------------------
-    // GOOGLE MAPS COMPANION AUTOMATION (OPTION B - DEEP SCRAPE)
-    // ----------------------------------------------------
-    launchGoogleMapsAutoScrape() {
-        const batchLimitSelect = document.getElementById('scraper-batch-limit');
-        let limit = 25;
-        if (batchLimitSelect) {
-            const rawVal = batchLimitSelect.value;
-            limit = (rawVal === 'all') ? 60 : (parseInt(rawVal, 10) || 25);
+    showGoogleMapsReady() {
+        this.candidatePlaces = [];
+        this.territoryData = null;
+        const badge = document.getElementById('preview-count-badge');
+        if (badge) badge.textContent = 'Sumber: Google Maps';
+        const list = document.getElementById('pre-scrape-places-list');
+        if (list) list.textContent = 'Klik Buka Google Maps, jalankan ekstensi, lalu impor JSON hasil scraping di bawah. Data bisnis diambil dari Google Maps.';
+    },
+
+    googleMapsSearchQuery(cityWide = false) {
+        const cleanLabel = text => String(text || '').replace(/\s*\[.*?\]\s*/g, '').replace(/\s*\(\d+\)\s*$/, '').trim();
+        let category = cleanLabel((this.currentQuery.category || 'bisnis').replace(/_/g, ' '));
+        const categorySelect = document.getElementById('target-category-select');
+        if (this.currentQuery.targetMode === 'preset' && categorySelect?.selectedOptions?.[0]) {
+            category = cleanLabel(categorySelect.selectedOptions[0].textContent);
         }
-
-        // Construct search query
-        let categoryName = this.currentQuery.category || 'Semua Bidang Usaha';
-        let locName = this.currentQuery.location || 'Magelang Utara, Kota Magelang';
-        let isMultiSector = 0;
-        let queryText = '';
-
-        if (categoryName === 'all' || categoryName === 'semua_bidang' || categoryName === 'Semua Bidang Usaha') {
-            categoryName = 'Semua Bidang Usaha';
-            isMultiSector = 1;
-            // First rotation sector: Kuliner & Kafe (densest merchant contact in Indonesia)
-            queryText = `kuliner di ${locName}`;
+        if (['all', 'semua', 'semua_bidang', 'all_categories'].includes(this.currentQuery.category) || /^semua (bidang usaha|jenis bisnis)/i.test(category)) {
+            category = 'bisnis';
         } else {
-            queryText = `${categoryName} di ${locName}`;
+            category = category.replace(/^semua\s+/i, '');
         }
-
-        let lat = this.currentQuery.lat || -7.46;
-        let lng = this.currentQuery.lng || 110.22;
-        let zoom = 15;
-
-        if (this.currentQuery.zoneMode === 'radius' && this.currentQuery.radius) {
-            const r = this.currentQuery.radius;
-            zoom = r <= 1 ? 16 : (r <= 3 ? 15 : (r <= 7 ? 14 : 13));
+        let location = cleanLabel(this.currentQuery.location || 'Indonesia') || 'Indonesia';
+        if (cityWide) {
+            const names = ['filter-kabupaten', 'filter-provinsi'].map(id => {
+                const select = document.getElementById(id);
+                return cleanLabel(select?.selectedOptions?.[0]?.textContent || '');
+            }).filter(name => name && !name.startsWith('--'));
+            if (names.length) location = names.join(', ');
+        } else if (this.currentQuery.zoneMode === 'radius') {
+            location += ' dekat ' + this.currentQuery.lat + ', ' + this.currentQuery.lng;
         }
+        return category + ' di ' + location;
+    },
 
-        const encodedQuery = encodeURIComponent(queryText);
-        const originUrl = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '');
-        const targetUrl = `https://www.google.com/maps/search/${encodedQuery}/@${lat.toFixed(5)},${lng.toFixed(5)},${zoom}z?clientreach_auto=1&target=${limit}&category=${encodeURIComponent(categoryName)}&location=${encodeURIComponent(locName)}&multi_sector=${isMultiSector}&origin=${encodeURIComponent(originUrl)}`;
-
-        const btnGmapsAuto = document.getElementById('btn-scrape-gmaps-auto');
-        if (btnGmapsAuto) {
-            const originalHTML = btnGmapsAuto.innerHTML;
-            btnGmapsAuto.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Membuka Google Maps...</span>';
-            setTimeout(() => {
-                if (btnGmapsAuto) btnGmapsAuto.innerHTML = originalHTML;
-            }, 3000);
-        }
-
-        const win = window.open(targetUrl, '_blank');
-        if (!win) {
-            alert('Pop-up browser diblokir. Silakan izinkan pop-up untuk membuka Google Maps secara otomatis.');
-        } else {
-            this.watchForChromeImportCompletion(limit);
-        }
+    launchGoogleMapsAutoScrape(cityWide = false) {
+        const url = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(this.googleMapsSearchQuery(cityWide));
+        window.open(url, '_blank', 'noopener');
+        this.showToast('Klik Mulai scraping di ekstensi Chrome, unduh JSON, lalu impor hasilnya ke sistem.');
     },
 
     launchGoogleMapsCityWideScrape() {
-        const regKota = document.getElementById('reg-kota');
-        let cityName = regKota ? (regKota.options[regKota.selectedIndex]?.text || regKota.value) : 'Kota Magelang';
-        cityName = cityName.replace(/\[Database\]/gi, '').trim();
+        this.launchGoogleMapsAutoScrape(true);
+    },
 
-        const queryText = `bisnis di ${cityName}`;
-        const encodedQuery = encodeURIComponent(queryText);
-        const originUrl = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '');
+    setEngineStatus(title, msg, badgeText = 'Running', badgeClass = 'badge-blue', showBar = false, pct = 0) {
+        const box = document.getElementById('engine-live-status-box');
+        const titleEl = document.getElementById('engine-status-title');
+        const msgEl = document.getElementById('engine-status-msg');
+        const badgeEl = document.getElementById('engine-status-badge');
+        const barWrap = document.getElementById('engine-progress-bar-wrap');
+        const bar = document.getElementById('engine-progress-bar');
 
-        let lat = this.currentQuery.lat || -7.47;
-        let lng = this.currentQuery.lng || 110.22;
-        let zoom = 13;
-
-        // Target for city-wide sapu bersih is high (e.g. 180 places across all sectors/districts)
-        const targetUrl = `https://www.google.com/maps/search/${encodedQuery}/@${lat.toFixed(5)},${lng.toFixed(5)},${zoom}z?clientreach_auto=1&target=180&category=Semua%20Bidang%20Usaha&location=${encodeURIComponent(cityName)}&city_mode=1&multi_sector=1&origin=${encodeURIComponent(originUrl)}`;
-
-        const btn = document.getElementById('btn-sapu-bersih-gmaps');
-        if (btn) {
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Membuka Google Maps Se-Kota...</span>';
-            setTimeout(() => {
-                if (btn) btn.innerHTML = originalHTML;
-            }, 3000);
+        if (!box) return;
+        box.style.display = 'block';
+        if (titleEl) titleEl.textContent = title;
+        if (msgEl) msgEl.innerHTML = msg;
+        if (badgeEl) {
+            badgeEl.textContent = badgeText;
+            badgeEl.className = 'badge ' + badgeClass;
         }
-
-        const win = window.open(targetUrl, '_blank');
-        if (!win) {
-            alert('Pop-up browser diblokir. Silakan izinkan pop-up untuk membuka Google Maps secara otomatis.');
-        } else {
-            this.watchForChromeImportCompletion(180);
+        if (barWrap && bar) {
+            barWrap.style.display = showBar ? 'block' : 'none';
+            bar.style.width = Math.min(100, Math.max(0, pct)) + '%';
         }
     },
 
-    watchForChromeImportCompletion(expectedCount) {
-        let attempts = 0;
-        const maxAttempts = 180; // 4.5 minutes max for multi-sector
-        const countBadge = document.getElementById('preview-count-badge');
+    async executeCloudWaterfallScrape() {
+        const category = this.currentQuery.category || 'bisnis';
+        const location = this.currentQuery.location || 'Indonesia';
+        const query = this.googleMapsSearchQuery();
+        const limitSelect = document.getElementById('scraper-batch-limit');
+        const limitVal = parseInt(limitSelect?.value || '25', 10) || 25;
 
-        const pollInterval = setInterval(async () => {
-            attempts++;
-            if (attempts > maxAttempts) {
-                clearInterval(pollInterval);
+        this.setEngineStatus(
+            'Cloud API (Estafet Waterfall)',
+            'Menghubungi provider Cloud API: Apify ➔ Outscraper ➔ SerpApi...',
+            'Menghubungi API...',
+            'badge-blue',
+            true,
+            25
+        );
+
+        try {
+            const resp = await fetch('api/scraper.php?action=cloud_scrape', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, category, location, limit: limitVal })
+            });
+            const data = await resp.json();
+
+            if (!data.success) {
+                this.setEngineStatus(
+                    'Gagal Mengambil Data Cloud',
+                    (data.message || 'Semua provider cloud gagal.') + (data.details ? '<br>' + Object.entries(data.details).map(([k, v]) => `<strong>${k}:</strong> ${v}`).join('; ') : ''),
+                    'Gagal',
+                    'badge-red',
+                    false
+                );
+                alert(data.message || 'Gagal mengambil data dari Cloud API. Periksa API Key di config.local.php.');
                 return;
             }
 
-            try {
-                // Check localStorage fallback first
-                const pending = localStorage.getItem('clientreach_pending_import');
-                if (pending) {
-                    localStorage.removeItem('clientreach_pending_import');
-                    const parsed = JSON.parse(pending);
-                    if (parsed && parsed.items && parsed.items.length > 0) {
-                        clearInterval(pollInterval);
-                        this.processImportedChromeLeads(parsed.items, parsed.category, parsed.location);
-                        return;
-                    }
-                }
+            const places = data.places || [];
+            this.setEngineStatus(
+                `Sukses (${data.provider})`,
+                `Berhasil mengambil <strong>${places.length} data bisnis</strong> via ${data.provider} tanpa buka browser!`,
+                'Selesai',
+                'badge-green',
+                true,
+                100
+            );
 
-                // Check backend endpoint
-                const res = await fetch('api/scraper.php?action=get_latest_chrome_import');
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && data.success && data.items && data.items.length > 0) {
-                        const count = data.items.length;
-                        if (countBadge) {
-                            countBadge.innerHTML = `<i class="fa-solid fa-cloud-arrow-down fa-beat" style="color:#2563eb;"></i> Mengimpor dari Google Maps: <strong>${count} data</strong>...`;
-                        }
-
-                        // If is_final is true or user returned or count meets target
-                        if (data.is_final || count >= expectedCount) {
-                            clearInterval(pollInterval);
-                            this.processImportedChromeLeads(data.items, data.category, data.location);
-                        }
-                    }
+            this.scrapedResults = places.map((p, idx) => ({
+                id: idx + 1,
+                name: p.name,
+                category: p.category || 'Bisnis',
+                address: p.address || location,
+                phone: p.phone || '-',
+                whatsapp: p.whatsapp || '',
+                lat: p.lat || null,
+                lng: p.lng || null,
+                social_media: p.website || '-',
+                website: p.website || '',
+                opening_hours: p.opening_hours || '-',
+                rating: p.rating || 0,
+                reviews_count: p.reviews_count || 0,
+                status: 'none',
+                source: p.source || 'cloud_api',
+                source_type: p.source_type || 'google_maps',
+                source_name: p.source_name || data.provider,
+                insights: {
+                    provenance: { source_name: p.source_name || data.provider, source_url: p.google_maps_url || '' },
+                    metrics: { rating_available: Number(p.rating) > 0, reviews_count_available: Number(p.reviews_count) > 0 }
                 }
-            } catch (err) {}
-        }, 1200);
+            }));
+
+            this.currentQuery.category = category;
+            this.currentQuery.location = location;
+            this.activeFilter = 'all';
+            this.renderScrapedResultsTable();
+
+            document.getElementById('scraper-setup-view').style.display = 'none';
+            document.getElementById('scraped-results-view').style.display = 'block';
+            this.showToast(`✓ Berhasil memuat ${places.length} prospek via ${data.provider}!`);
+        } catch (e) {
+            this.setEngineStatus('Error Jaringan', e.message, 'Error', 'badge-red');
+            alert('Error komunikasi server: ' + e.message);
+        }
     },
 
-    processImportedChromeLeads(items, category, location) {
-        if (!items || items.length === 0) return;
+    async executeLocalChromeScrape() {
+        const category = this.currentQuery.category || 'bisnis';
+        const location = this.currentQuery.location || 'Indonesia';
+        const query = this.googleMapsSearchQuery();
+        const limitSelect = document.getElementById('scraper-batch-limit');
+        const limitVal = parseInt(limitSelect?.value || '25', 10) || 25;
 
-        // Smart Geo-Fencing: If in boundary mode, ensure containment
-        if (this.currentQuery.zoneMode === 'boundary' && window.mapEngine) {
-            const inside = items.filter(it => {
-                return window.mapEngine.isPointInsideBoundary(it.lat, it.lng);
+        this.setEngineStatus(
+            'Mesin Lokal Laptop',
+            'Memulai Chrome otomatis di latar belakang laptop Anda...',
+            'Menyiapkan Chrome',
+            'badge-blue',
+            true,
+            10
+        );
+
+        try {
+            const startResp = await fetch('api/scraper.php?action=run_local_scrape', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, limit: limitVal, headless: true })
             });
-            this.scrapedResults = (inside.length > 0) ? inside : items;
-        } else {
-            this.scrapedResults = items;
+            const startData = await startResp.json();
+            if (!startData.success) {
+                this.setEngineStatus('Gagal Memulai Mesin Lokal', startData.message, 'Gagal', 'badge-red');
+                alert(startData.message);
+                return;
+            }
+
+            this.showToast('Mesin lokal Chrome dimulai di latar belakang laptop Anda.');
+
+            const pollTimer = setInterval(async () => {
+                try {
+                    const stResp = await fetch('api/scraper.php?action=local_scrape_status');
+                    const st = await stResp.json();
+
+                    if (st.captcha_prompt) {
+                        this.setEngineStatus(
+                            '⚠️ CAPTCHA Terdeteksi!',
+                            'Jendela browser dibuka ke layar laptop Anda. Silakan centang/selesaikan CAPTCHA gambar dalam 45 detik agar proses berlanjut...',
+                            'Selesaikan CAPTCHA',
+                            'badge-amber',
+                            true,
+                            50
+                        );
+                    } else if (st.status === 'running' || st.status === 'loading_maps') {
+                        const count = st.collected_count || 0;
+                        const pct = Math.min(95, Math.round((count / limitVal) * 100));
+                        this.setEngineStatus(
+                            'Mesin Lokal Sedang Mengambil Data...',
+                            `Terkumpul: <strong>${count} / ${limitVal} tempat</strong> (Otomatis disimpan per data).`,
+                            `Mengambil (${count}/${limitVal})`,
+                            'badge-blue',
+                            true,
+                            pct
+                        );
+                    } else if (st.status === 'completed' || st.status === 'failover_to_api') {
+                        clearInterval(pollTimer);
+
+                        const places = st.places || [];
+                        if (st.status === 'failover_to_api') {
+                            this.setEngineStatus(
+                                'Failover ke Cloud API',
+                                `Waktu CAPTCHA habis. ${places.length} data awal tetap aman tersimpan! Melanjutkan sisa target via Cloud API...`,
+                                'Failover API',
+                                'badge-amber',
+                                true,
+                                70
+                            );
+                            await this.executeCloudWaterfallScrape();
+                            return;
+                        }
+
+                        this.setEngineStatus(
+                            'Mesin Lokal Selesai!',
+                            `Berhasil mengekstrak <strong>${places.length} tempat</strong> secara otomatis di laptop Anda!`,
+                            'Selesai',
+                            'badge-green',
+                            true,
+                            100
+                        );
+
+                        this.scrapedResults = places.map((p, idx) => ({
+                            id: idx + 1,
+                            name: p.name,
+                            category: p.category || 'Bisnis',
+                            address: p.address || location,
+                            phone: p.phone || '-',
+                            whatsapp: p.whatsapp || '',
+                            lat: p.lat || null,
+                            lng: p.lng || null,
+                            social_media: p.website || '-',
+                            website: p.website || '',
+                            opening_hours: p.opening_hours || '-',
+                            rating: p.rating || 0,
+                            reviews_count: p.reviews_count || 0,
+                            status: 'none',
+                            source: 'local_headless',
+                            source_type: 'google_maps',
+                            source_name: 'Mesin Lokal Laptop',
+                            insights: {
+                                provenance: { source_name: 'Mesin Lokal Laptop (Chrome)', source_url: p.google_maps_url || '' },
+                                metrics: { rating_available: Number(p.rating) > 0, reviews_count_available: Number(p.reviews_count) > 0 }
+                            }
+                        }));
+
+                        this.currentQuery.category = category;
+                        this.currentQuery.location = location;
+                        this.activeFilter = 'all';
+                        this.renderScrapedResultsTable();
+
+                        document.getElementById('scraper-setup-view').style.display = 'none';
+                        document.getElementById('scraped-results-view').style.display = 'block';
+                        this.showToast(`✓ Sukses mengambil ${places.length} data via Mesin Lokal!`);
+                    }
+                } catch (_) {}
+            }, 2000);
+
+        } catch (e) {
+            this.setEngineStatus('Error', e.message, 'Error', 'badge-red');
+            alert('Gagal memulai mesin lokal: ' + e.message);
         }
-
-        this.activeFilter = 'has_wa';
-        this.renderScrapedResultsTable();
-
-        document.getElementById('scraper-setup-view').style.display = 'none';
-        document.getElementById('scraped-results-view').style.display = 'block';
-
-        if (window.mapEngine) {
-            window.mapEngine.showPreviewMarkers(this.scrapedResults);
-        }
-
-        if (window.DataManager) window.DataManager.loadTreeData();
-        if (window.App) window.App.refreshDashboardStats();
-
-        const countWa = this.scrapedResults.filter(p => p.phone && (p.phone.startsWith('08') || p.phone.startsWith('628'))).length;
-        alert(`🎉 Sukses! Berhasil mendeteksi ${this.scrapedResults.length} data bisnis asli dari Google Maps (${countWa} memiliki WhatsApp 08xx).\n\nData sudah otomatis masuk ke sistem Anda.`);
     },
 
-    checkChromeReturnState() {
-        const hash = window.location.hash || '';
-        if (hash.includes('chrome_success') || hash.includes('chrome_local')) {
-            setTimeout(async () => {
-                try {
-                    const res = await fetch('api/scraper.php?action=get_latest_chrome_import');
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data && data.success && data.items) {
-                            this.processImportedChromeLeads(data.items, data.category, data.location);
-                        }
-                    }
-                } catch(e) {}
-            }, 600);
+    async executeDorkingHunter() {
+        const category = this.currentQuery.category || 'bisnis';
+        const location = this.currentQuery.location || 'Indonesia';
+        const limitSelect = document.getElementById('scraper-batch-limit');
+        const limitVal = parseInt(limitSelect?.value || '25', 10) || 25;
+
+        this.setEngineStatus(
+            'Sosmed & Direct WA Hunter',
+            `Memburu nomor WhatsApp aktif dari Instagram, Facebook, TikTok & Web untuk "<strong>${this.escapeText(category)}</strong>" di <strong>${this.escapeText(location)}</strong>...`,
+            'Sedang Memburu WA',
+            'badge-purple',
+            true,
+            30
+        );
+
+        try {
+            const resp = await fetch('api/scraper.php?action=dork_hunt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ category, location, platform: 'all', limit: limitVal })
+            });
+            const data = await resp.json();
+
+            if (!data.success || !data.leads || data.leads.length === 0) {
+                this.setEngineStatus(
+                    'Selesai',
+                    'Tidak ditemukan nomor WhatsApp publik untuk kombinasi kata kunci ini. Coba ganti kategori atau kota.',
+                    'Nol Hasil',
+                    'badge-amber'
+                );
+                alert('Tidak ada kontak WA ditemukan untuk kata kunci ini.');
+                return;
+            }
+
+            const leads = data.leads;
+            this.setEngineStatus(
+                'Buru WA Selesai!',
+                `Berhasil memburu <strong>${leads.length} nomor WhatsApp langsung</strong> dari media sosial publik!`,
+                'Selesai',
+                'badge-green',
+                true,
+                100
+            );
+
+            this.scrapedResults = leads.map((l, idx) => ({
+                id: idx + 1,
+                name: l.name,
+                category: l.category || 'Sosmed Business',
+                address: l.address,
+                phone: l.phone,
+                whatsapp: l.whatsapp,
+                lat: null,
+                lng: null,
+                social_media: l.evidence_url || l.website,
+                website: l.evidence_url || l.website,
+                opening_hours: l.opening_hours || 'Online',
+                rating: 0,
+                reviews_count: 0,
+                status: 'none',
+                source: l.source || 'duckduckgo_dorking',
+                source_type: 'google_dorking',
+                source_name: l.source_name || 'Sosmed Dorking',
+                insights: {
+                    provenance: { source_name: l.source_name, source_url: l.evidence_url },
+                    metrics: { rating_available: false, reviews_count_available: false },
+                    contact: { whatsapp_listed: true, phone_listed: true, whatsapp: l.whatsapp }
+                }
+            }));
+
+            this.currentQuery.category = category;
+            this.currentQuery.location = location;
+            this.activeFilter = 'all';
+            this.renderScrapedResultsTable();
+
+            document.getElementById('scraper-setup-view').style.display = 'none';
+            document.getElementById('scraped-results-view').style.display = 'block';
+            this.showToast(`✓ Berhasil memburu ${leads.length} nomor WhatsApp dari Sosmed!`);
+        } catch (e) {
+            this.setEngineStatus('Error Dorking', e.message, 'Error', 'badge-red');
+            alert('Error saat dorking: ' + e.message);
         }
+    },
+    watchForChromeImportCompletion() { return; },
+    processImportedChromeLeads() { return; },
+
+    escapeText(value) {
+        return String(value ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '\"':'&quot;', "'":'&#39;'}[c]));
+    },
+
+    sourceForItem(item) {
+        return item.provenance || item.insights?.provenance || {
+            source_name: item.source_name || 'Sumber historis tidak dicantumkan',
+            source_url: item.source_url || '', license: '', usage_basis: ''
+        };
+    },
+
+    metricsForItem(item) {
+        const observed = item.insights?.metrics;
+        return {
+            ratingAvailable: observed ? observed.rating_available === true : Number(item.rating) > 0,
+            reviewsAvailable: observed ? observed.reviews_count_available === true : Number(item.rating) > 0
+        };
+    },
+
+    bindSourceImport() {
+        const input = document.getElementById('public-source-file');
+        const button = document.getElementById('btn-import-public-source');
+        const status = document.getElementById('public-source-status');
+        if (!input || !button || input.dataset.bound) return;
+        input.dataset.bound = '1';
+        let pending = null;
+        input.addEventListener('change', async () => {
+            pending = null; button.disabled = true;
+            const file = input.files[0]; if (!file) return;
+            try {
+                if (file.size > 2 * 1024 * 1024) throw new Error('Ukuran file maksimal 2 MB.');
+                const documentData = JSON.parse(await file.text());
+                if (!Array.isArray(documentData.records) || documentData.records.length < 1 || documentData.records.length > 500) throw new Error('JSON harus berisi records sebanyak 1–500 data.');
+                const isMaps = documentData.records.every(record => {
+                    if (!record || !['google_maps_extension', 'browser_manual'].includes(record.source_type || documentData.source?.source_type)) return false;
+                    try {
+                        const url = new URL(record.source_url || documentData.source?.source_url || '');
+                        return url.protocol === 'https:' && ['google.com', 'www.google.com', 'maps.google.com', 'google.co.id', 'www.google.co.id', 'maps.google.co.id'].includes(url.hostname) && !url.username && !url.password && (!url.port || url.port === '443');
+                    } catch (_) { return false; }
+                });
+                if (!isMaps) throw new Error('Pilih JSON hasil Google Maps dari ekstensi cliento.');
+                pending = documentData; status.textContent = documentData.records.length + ' record siap diimpor.'; button.disabled = false;
+            } catch (error) { status.textContent = error.message; }
+        });
+        button.addEventListener('click', async () => {
+            if (!pending) return;
+            button.disabled = true; status.textContent = 'Menyimpan data dan atribusi sumber...';
+            try {
+                const response = await fetch('api/source_import.php', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(pending)});
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.message || 'Impor gagal.');
+                this.scrapedResults = data.items; this.currentQuery.category = pending.context?.target_category || 'Google Maps'; this.currentQuery.location = pending.context?.location_name || 'sesuai pencarian'; this.activeFilter = 'all';
+                this.renderScrapedResultsTable();
+                document.getElementById('scraper-setup-view').style.display = 'none'; document.getElementById('scraped-results-view').style.display = 'block';
+                pending = null; input.value = ''; status.textContent = data.items.length + ' record tersimpan dengan atribusi sumber.';
+                if (window.DataManager) window.DataManager.loadTreeData();
+                if (window.App) window.App.refreshDashboardStats();
+            } catch (error) { status.textContent = error.message; button.disabled = false; }
+        });
     },
 
     // Filter pills in scraped results
@@ -3824,16 +3881,26 @@ const ScraperClient = {
             ? 'SEMUA BIDANG USAHA' 
             : (this.currentQuery.category || 'PROSPEK').toUpperCase();
         if (titleEl) titleEl.textContent = `Hasil Scraping: ${catUpper} di ${this.currentQuery.location}`;
+        const summary = document.getElementById('scraped-summary');
+        if (summary) {
+            const contacts = this.scrapedResults.filter(item => item.phone && item.phone !== '-').length;
+            const websites = this.scrapedResults.filter(item => item.website || (item.social_media && item.social_media !== '-')).length;
+            summary.textContent = `${this.scrapedResults.length} bisnis · ${contacts} dengan telepon · ${websites} dengan website. Tersimpan di riwayat; gunakan Simpan ke Arsip atau Download Excel.`;
+        }
 
         let filtered = this.scrapedResults;
         if (this.activeFilter === 'has_wa') {
             filtered = this.scrapedResults.filter(it => it.phone && it.phone !== '-');
         } else if (this.activeFilter === 'low_rating') {
-            filtered = this.scrapedResults.filter(it => parseFloat(it.rating) < 4.5);
+            filtered = this.scrapedResults.filter(it => parseFloat(it.rating) > 0 && parseFloat(it.rating) < 4.2);
         } else if (this.activeFilter === 'high_rating') {
             filtered = this.scrapedResults.filter(it => parseFloat(it.rating) >= 4.5);
         } else if (this.activeFilter === 'no_web') {
             filtered = this.scrapedResults.filter(it => !it.social_media || it.social_media.startsWith('@'));
+        } else if (this.activeFilter === 'source_maps') {
+            filtered = this.scrapedResults.filter(it => (it.source_type !== 'google_dorking'));
+        } else if (this.activeFilter === 'source_dorking') {
+            filtered = this.scrapedResults.filter(it => (it.source_type === 'google_dorking'));
         }
 
         if (countBadge) countBadge.textContent = `${filtered.length} dari ${this.scrapedResults.length} Data Ditampilkan`;
@@ -3858,22 +3925,24 @@ const ScraperClient = {
             const waUrl = window.TemplateManager ? window.TemplateManager.getWhatsAppUrl(it) : '#';
 
             const opps = this.detectOpportunities(it);
-            const oppBadgesHtml = opps.slice(0, 2).map(o => `<span class="opp-badge ${o.badgeClass}" title="${o.reason}">${o.badge}</span>`).join(' ');
+            const oppBadgesHtml = opps.slice(0, 2).map(o => `<span class="opp-badge ${o.badgeClass}" title="${this.escapeText(o.reason)}">${this.escapeText(o.badge)}</span>`).join(' ');
+            const source = this.sourceForItem(it);
+            const metrics = this.metricsForItem(it);
+            const metricsText = [metrics.ratingAvailable ? `${it.rating} / 5` : 'Rating tidak tersedia', metrics.reviewsAvailable ? `${it.reviews_count} ulasan` : 'Ulasan tidak tersedia'].join(' · ');
 
             const multiChannelHtml = `
                 <div class="lead-data-verification">
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 5px;">
-                        <span class="badge-clean-status" title="Data terverifikasi lokasi dan kontak resmi">
-                            <i class="fa-solid fa-circle-check" style="color: #10b981; font-size: 0.75rem;"></i> Asli &amp; Valid
+                        <span class="badge-clean-status" title="Atribusi mengikuti sumber; belum diverifikasi independen">
+                            <i class="fa-solid fa-database" style="color: #2563eb; font-size: 0.75rem;"></i> ${this.escapeText(source.source_name)}
                         </span>
                         <button class="btn-view-detail" data-id="${it.id}" title="Klik untuk membuka rincian sumber data bisnis">
                             <i class="fa-solid fa-circle-info"></i> Rincian Data
                         </button>
                     </div>
                     <div class="lead-checklist-tags">
-                        <span class="tag-clean" title="Peta Digital: Lokasi fisik dan direktori bisnis"><i class="fa-brands fa-google"></i> Maps</span>
-                        <span class="tag-clean" title="Saluran Outreach: Kesiapan chat WhatsApp & telepon"><i class="fa-brands fa-whatsapp"></i> WhatsApp</span>
-                        <span class="tag-clean" title="OpenStreetMap: Titik koordinat GPS dan batas wilayah"><i class="fa-solid fa-map-location-dot"></i> OpenStreetMap</span>
+                        <span class="tag-clean">${it.phone && it.phone !== '-' ? 'Nomor tercantum' : 'Kontak tidak tersedia'}</span>
+                        <span class="tag-clean">WhatsApp perlu verifikasi</span>
                     </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px;">
                         ${oppBadgesHtml}
@@ -3891,9 +3960,9 @@ const ScraperClient = {
             let phoneDisplay = `<span style="color: #94a3b8;">-</span>`;
             if (hasPhone) {
                 if (isMobile) {
-                    phoneDisplay = `<a href="${waUrl}" target="_blank" style="color: #16a34a; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="Chat WhatsApp Langsung"><i class="fa-brands fa-whatsapp"></i> ${it.phone}</a>`;
+                    phoneDisplay = `<a href="${this.escapeText(waUrl)}" target="_blank" rel="noopener" style="color: #16a34a; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="Coba WhatsApp; akun aktif belum diverifikasi"><i class="fa-brands fa-whatsapp"></i> ${this.escapeText(it.phone)}</a>`;
                 } else {
-                    phoneDisplay = `<a href="tel:${it.phone}" style="color: #2563eb; font-weight: 500; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="Telepon Kantor PSTN"><i class="fa-solid fa-phone"></i> ${it.phone}</a>`;
+                    phoneDisplay = `<a href="tel:${cleanDigits}" style="color: #2563eb; font-weight: 500; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="Nomor telepon dari sumber"><i class="fa-solid fa-phone"></i> ${this.escapeText(it.phone)}</a>`;
                 }
             }
 
@@ -3903,11 +3972,11 @@ const ScraperClient = {
                 const isInsta = web.includes('instagram.com') || web.startsWith('@');
                 const targetUrl = web.startsWith('http') ? web : (isInsta ? `https://${web.replace(/^@/, 'instagram.com/')}` : `https://${web}`);
                 const icon = isInsta ? '<i class="fa-brands fa-instagram" style="color: #e1306c;"></i>' : '<i class="fa-solid fa-globe" style="color: #2563eb;"></i>';
-                webDisplay = `<a href="${targetUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 3px;" title="${web}">${icon} ${web.replace(/^https?:\/\//, '').substring(0, 20)}${web.length > 20 ? '...' : ''}</a>`;
+                if (/^https?:\/\//i.test(targetUrl)) webDisplay = `<a href="${this.escapeText(targetUrl)}" target="_blank" rel="noopener" style="color: #2563eb; text-decoration: none; font-size: 0.72rem;" title="${this.escapeText(web)}">${icon} ${this.escapeText(web.replace(/^https?:\/\//, '').substring(0, 20))}${web.length > 20 ? '...' : ''}</a>`;
             }
 
             const hoursDisplay = (it.opening_hours && it.opening_hours !== '-')
-                ? `<span style="font-size: 0.72rem; color: #475569; display: inline-flex; align-items: center; gap: 4px;"><i class="fa-regular fa-clock" style="color: #94a3b8; font-size: 0.68rem;"></i> ${it.opening_hours}</span>`
+                ? `<span style="font-size: 0.72rem; color: #475569; display: inline-flex; align-items: center; gap: 4px;"><i class="fa-regular fa-clock" style="color: #94a3b8; font-size: 0.68rem;"></i> ${this.escapeText(it.opening_hours)}</span>`
                 : `<span style="color: #94a3b8;">-</span>`;
 
             const waBtn = isMobile
@@ -3917,17 +3986,17 @@ const ScraperClient = {
             tr.innerHTML = `
                 <td style="width: 30px; text-align: center;">${idx + 1}</td>
                 <td>
-                    <div style="font-weight: 700; color: #0f172a;">${it.name}</div>
-                    <div style="font-size: 0.72rem; color: #64748b;">${it.category}</div>
+                    <div style="font-weight: 700; color: #0f172a;">${this.escapeText(it.name)}</div>
+                    <div style="font-size: 0.72rem; color: #64748b;">${this.escapeText(it.category)}</div>
                 </td>
                 <td style="min-width: 180px;">
                     ${multiChannelHtml}
                 </td>
-                <td style="max-width: 170px; font-size: 0.74rem;">${it.address}</td>
+                <td style="max-width: 170px; font-size: 0.74rem;">${this.escapeText(it.address)}</td>
                 <td style="white-space: nowrap; font-size: 0.76rem;">${phoneDisplay}</td>
                 <td style="font-size: 0.72rem;">${webDisplay}</td>
                 <td style="font-size: 0.72rem;">${hoursDisplay}</td>
-                <td style="font-weight: 700; color: #0f172a; white-space: nowrap;"><i class="fa-solid fa-star" style="color: #f59e0b;"></i> ${it.rating} <span style="font-size: 0.68rem; color:#94a3b8;">(${it.reviews_count})</span></td>
+                <td style="font-weight: 700; color: #64748b; white-space: nowrap;">${this.escapeText(metricsText)}</td>
                 <td style="text-align: right; white-space: nowrap;">
                     <div style="display: inline-flex; gap: 4px;">
                         <button class="btn btn-outline btn-sm btn-quick-copy" title="Salin Pesan Penawaran Terpersonalisasi" data-id="${it.id}">
@@ -4105,9 +4174,9 @@ const ScraperClient = {
                     name: 'Nama Bisnis Calon Klien',
                     category: window.TemplateManager?.activeCategory || 'Cafe & Coffee Shop',
                     address: 'Kota Magelang',
-                    rating: '4.8',
-                    reviews_count: '120',
-                    phone: '081234567890'
+                    rating: null,
+                    reviews_count: 0,
+                    phone: ''
                 };
                 this.openAIPitchModal(dummyItem, 'gemini');
             });
@@ -4186,7 +4255,7 @@ const ScraperClient = {
 
         // 3. Review Count Check
         const revCount = parseInt(item.reviews_count) || 0;
-        if (revCount < 25 && (ratingNum >= 4.2 || ratingNum === 0)) {
+        if (this.metricsForItem(item).reviewsAvailable && ratingNum > 0 && revCount < 25 && ratingNum >= 4.2) {
             opps.push({
                 id: 'low_reviews',
                 badge: `Ulasan Sedikit (${revCount})`,
@@ -4196,7 +4265,7 @@ const ScraperClient = {
                 solution: 'Optimasi listing peta dan booster ulasan bintang 5 organik.',
                 service: 'Jasa Optimasi Google Maps & Review Booster',
                 pain: 'Peringkat Google Maps belum di 3 besar & kompetitor di sekitar lebih ramai pengunjung',
-                pitchHook: `toko kakak sudah punya rating bagus (${ratingNum || '4.8'}), tapi ulasannya baru ${revCount}. Kompetitor di sekitar yang punya ratusan ulasan lebih berpeluang disarankan Google ke calon pembeli baru`,
+                pitchHook: `data rating dan ulasan Google toko kakak belum lengkap pada sumber yang tersedia (tercatat ${revCount} ulasan). Kelengkapan profil resmi tetap membantu calon pembeli`,
                 pitchSolution: 'kami bantu optimasi profil Google Maps dan booster ulasan bintang 5 organik agar toko kakak selalu muncul di pencarian teratas'
             });
         }
@@ -4253,7 +4322,7 @@ const ScraperClient = {
                 badge: 'Peluang Scaling Iklan',
                 badgeClass: 'opp-badge-success',
                 title: 'Perluasan Pasar & Iklan Digital',
-                reason: `Profil bisnis ini sudah sangat kuat (${ratingNum || '4.8'} bintang). Peluang saat ini adalah ekspansi penjualan melalui targeted traffic.`,
+                reason: ratingNum > 0 ? `Profil bisnis ini tercatat ${ratingNum.toFixed(1)} bintang pada sumber yang tersedia. Peluang saat ini adalah ekspansi penjualan melalui targeted traffic.` : 'Rating Google tidak tersedia pada data ini; peluang saat ini adalah ekspansi penjualan melalui targeted traffic.',
                 solution: 'Pengelolaan kampanye iklan digital tertarget lokal untuk melipatgandakan omset.',
                 service: 'Jasa Kelola Media Sosial & Iklan Berbayar',
                 pain: 'Ingin omset naik drastis tapi hemat biaya iklan berbayar yang mahal',
@@ -4404,7 +4473,7 @@ const ScraperClient = {
         let body = '';
         if (selected.length === 1) {
             const opp = selected[0];
-            body = `${greetingText}\n\nKami sempat menganalisis data profil usaha kakak di ${item.address} (Rating ${item.rating || '4.5'}). Sedikit insight objektif dari riset kami, ${opp.pitchHook}.\n\nKebetulan di tim kami, ${opp.pitchSolution}.\n\nKira-kira jika kami kirimkan ringkasan solusi singkatnya via WhatsApp ini, boleh kak? Terima kasih banyak.`;
+            body = `${greetingText}\n\nKami melihat informasi publik usaha kakak di ${item.address} (rating: ${item.rating || 'belum tersedia dari sumber'}). Dari data yang tersedia, ${opp.pitchHook}.\n\nKebetulan di tim kami, ${opp.pitchSolution}.\n\nKira-kira jika kami kirimkan ringkasan solusi singkatnya via WhatsApp ini, boleh kak? Terima kasih.`;
         } else if (selected.length > 1) {
             // Bundled multi-opportunity pitch!
             const hooks = selected.map((o, i) => `${i + 1}. ${o.pitchHook}`).join('\n');
@@ -4459,7 +4528,7 @@ const ScraperClient = {
                 category: this.activeModalItem.category,
                 address: this.activeModalItem.address,
                 rating: this.activeModalItem.rating,
-                reviews_count: this.activeModalItem.reviews_count || '100',
+                reviews_count: this.activeModalItem.reviews_count || 0,
                 has_website: !!(this.activeModalItem.social_media && this.activeModalItem.social_media.includes('.')),
                 my_service: service,
                 my_offer: offer,
@@ -4553,90 +4622,28 @@ const ScraperClient = {
         this.activeModalItem = item;
         const modal = document.getElementById('modal-360-insight');
         if (!modal) return;
-
-        const catEl = document.getElementById('insight-modal-category');
-        const nameEl = document.getElementById('insight-modal-biz-name');
-        const addrEl = document.getElementById('insight-modal-address');
-        const waBadgeEl = document.getElementById('insight-modal-wa-badge');
-
-        if (catEl) catEl.textContent = item.category || 'Usaha Lokal';
-        if (nameEl) nameEl.textContent = item.name;
-        if (addrEl) addrEl.innerHTML = `<i class="fa-solid fa-location-dot" style="color: #ef4444;"></i> ${item.address || '-'}`;
-
-        const hasWa = item.phone && item.phone !== '-';
-        if (waBadgeEl) {
-            if (hasWa) {
-                waBadgeEl.className = 'badge badge-green';
-                waBadgeEl.innerHTML = `<i class="fa-brands fa-whatsapp"></i> ${item.phone} (Aktif)`;
-            } else {
-                waBadgeEl.className = 'badge';
-                waBadgeEl.style.background = '#f1f5f9';
-                waBadgeEl.style.color = '#64748b';
-                waBadgeEl.innerHTML = `<i class="fa-solid fa-phone-slash"></i> Belum Terhubung WA`;
-            }
-        }
-
-        const ins = item.insights || {};
-        const chA = ins.channel_alpha || {};
-        const chB = ins.channel_beta || {};
-        const chG = ins.channel_gamma || {};
-
-        // Sumber 1: Google Maps
-        const alphaRating = document.getElementById('insight-alpha-rating');
-        const alphaReviews = document.getElementById('insight-alpha-reviews');
-        const alphaStatus = document.getElementById('insight-alpha-status');
-        const alphaPopularity = document.getElementById('insight-alpha-popularity');
-        const alphaSummary = document.getElementById('insight-alpha-summary');
-
-        if (alphaRating) alphaRating.innerHTML = `<i class="fa-solid fa-star" style="color:#f59e0b;"></i> ${chA.rating || item.rating} / 5.0`;
-        if (alphaReviews) alphaReviews.textContent = `${chA.reviews_count || item.reviews_count || '120'} Ulasan`;
-        if (alphaStatus) alphaStatus.textContent = chA.status || 'Buka Normal';
-        if (alphaPopularity) alphaPopularity.textContent = chA.popularity_score || 'Ramai / Aktif';
-        if (alphaSummary) alphaSummary.textContent = chA.summary || 'Profil usaha aktif di Google Maps dengan kontak terverifikasi.';
-
-        // Sumber 2: Yelp
-        const betaSentiment = document.getElementById('insight-beta-sentiment');
-        const betaPrice = document.getElementById('insight-beta-price');
-        const betaSatisfaction = document.getElementById('insight-beta-satisfaction');
-        const betaRecommend = document.getElementById('insight-beta-recommend');
-        const betaSummary = document.getElementById('insight-beta-summary');
-
-        if (betaSentiment) betaSentiment.textContent = chB.sentiment_positive || '96% Positif';
-        if (betaPrice) betaPrice.textContent = `${chB.price_tier || '$$'} (${chB.price_tier_label || 'Menengah'})`;
-        if (betaSatisfaction) betaSatisfaction.textContent = chB.satisfaction_grade || 'Sangat Baik';
-        if (betaRecommend) betaRecommend.textContent = chB.recommendation_rate || '94% Pelanggan';
-        if (betaSummary) betaSummary.textContent = chB.summary || 'Memiliki reputasi stabil dan rekam jejak kepuasan konsumen tinggi.';
-
-        // Sumber 3: OpenStreetMap
-        const gammaGps = document.getElementById('insight-gamma-gps');
-        const gammaZoning = document.getElementById('insight-gamma-zoning');
-        const gammaAccess = document.getElementById('insight-gamma-access');
-        const gammaCadastral = document.getElementById('insight-gamma-cadastral');
-        const gammaSummary = document.getElementById('insight-gamma-summary');
-
-        if (gammaGps) gammaGps.textContent = chG.gps_accuracy || '±2.5 meter (Presisi)';
-        if (gammaZoning) gammaZoning.textContent = chG.zoning || 'Komersial / Usaha';
-        if (gammaAccess) gammaAccess.textContent = chG.road_access || 'Jalan Utama & Parkir';
-        if (gammaCadastral) gammaCadastral.textContent = chG.cadastral_status || '100% Dalam Wilayah';
-        if (gammaSummary) gammaSummary.textContent = chG.summary || 'Koordinat fisik terkonfirmasi berada di dalam batas garis merah daerah yang dipilih.';
-
-        // Direct WA link
+        const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+        const source = this.sourceForItem(item);
+        set('insight-modal-category', item.category || 'Usaha Lokal');
+        set('insight-modal-biz-name', item.name);
+        set('insight-modal-address', item.address || 'Alamat tidak tersedia');
+        set('insight-modal-wa-badge', item.phone && item.phone !== '-' ? item.phone + ' (akun WA belum diverifikasi)' : 'Kontak tidak tersedia');
+        set('insight-source-title', source.source_name);
+        set('insight-source-provenance', [source.source_name, source.source_url, source.license || source.usage_basis, source.observed_at].filter(Boolean).join(' · '));
+        set('insight-alpha-rating', this.metricsForItem(item).ratingAvailable ? item.rating + ' / 5' : 'Tidak tersedia');
+        set('insight-alpha-reviews', this.metricsForItem(item).reviewsAvailable ? item.reviews_count + ' ulasan' : 'Tidak tersedia');
+        set('insight-alpha-status', 'Data sesuai sumber'); set('insight-alpha-popularity', 'Tidak dinilai');
+        set('insight-alpha-summary', item.rating > 0 ? 'Rating dan jumlah ulasan tercantum pada saat pengambilan data Google Maps.' : 'Rating atau jumlah ulasan tidak terbaca pada sumber.');
+        set('insight-beta-sentiment', item.phone && item.phone !== '-' ? 'Nomor tercantum' : 'Tidak tersedia');
+        set('insight-beta-price', 'Tidak dinilai'); set('insight-beta-satisfaction', 'Tidak dinilai'); set('insight-beta-recommend', 'Perlu verifikasi manual');
+        set('insight-beta-summary', 'Nomor seluler tidak membuktikan akun WhatsApp aktif. Hanya gunakan kontak yang tercantum pada sumber.');
+        set('insight-gamma-gps', item.lat != null && item.lng != null ? item.lat + ', ' + item.lng : 'Koordinat tidak tersedia');
+        set('insight-gamma-zoning', 'Sesuai sumber'); set('insight-gamma-access', 'Tidak dinilai'); set('insight-gamma-cadastral', 'Perlu pemeriksaan peta');
+        set('insight-gamma-summary', 'Tidak ada jaminan presisi GPS atau verifikasi batas wilayah dari data ini.');
         const waBtn = document.getElementById('btn-wa-360-direct');
-        if (waBtn) {
-            const waUrl = window.TemplateManager ? window.TemplateManager.getWhatsAppUrl(item) : '#';
-            waBtn.href = waUrl;
-            if (!hasWa) {
-                waBtn.style.opacity = '0.5';
-                waBtn.style.pointerEvents = 'none';
-            } else {
-                waBtn.style.opacity = '1';
-                waBtn.style.pointerEvents = 'auto';
-            }
-        }
-
+        if (waBtn) { waBtn.style.opacity = '0.5'; waBtn.style.pointerEvents = 'none'; waBtn.title = 'Akun WhatsApp belum diverifikasi'; }
         modal.classList.add('active');
     },
-
     bind360ModalEvents() {
         const btnJumpAI = document.getElementById('btn-jump-to-ai-pitch');
         const btnCopySummary = document.getElementById('btn-copy-360-summary');
@@ -4660,16 +4667,19 @@ const ScraperClient = {
                 const chB = ins.channel_beta || {};
                 const chG = ins.channel_gamma || {};
 
-                const summaryText = `[INFORMASI SUMBER DATA BISNIS - CLIENTO]\n` +
-                    `Nama Bisnis : ${it.name}\n` +
-                    `Kategori    : ${it.category}\n` +
-                    `Alamat      : ${it.address}\n` +
-                    `Kontak WA   : ${it.phone || '-'}\n` +
-                    `Rating / Rev: ${it.rating} (${it.reviews_count} ulasan)\n` +
-                    `Status Data : 3 Sumber Terverifikasi Lengkap\n\n` +
-                    `1. Google Maps   : ${chA.status || 'Buka Normal'} (Kunjungan: ${chA.popularity_score || 'Ramai'})\n` +
-                    `2. Yelp          : ${chB.sentiment_positive || '96% Positif'} • Mutu: ${chB.satisfaction_grade || 'Sangat Baik'}\n` +
-                    `3. OpenStreetMap : ${chG.gps_accuracy || 'Presisi ±2.5m'} • 100% Dalam Batas Wilayah\n`;
+                const source = this.sourceForItem(it);
+                const summaryText = [
+                    `Nama Bisnis: ${it.name}`,
+                    `Kategori: ${it.category}`,
+                    `Alamat: ${it.address}`,
+                    `Kontak tercantum: ${it.phone || 'Tidak tersedia'}`,
+                    `Rating Google: ${this.metricsForItem(it).ratingAvailable ? it.rating : 'Tidak tersedia'}`,
+                    `Jumlah ulasan Google: ${this.metricsForItem(it).reviewsAvailable ? it.reviews_count : 'Tidak tersedia'}`,
+                    `Sumber: ${source.source_name || 'Tidak tersedia'}`,
+                    source.source_url ? `URL sumber: ${source.source_url}` : '',
+                    source.license || source.usage_basis || '',
+                    'Akun WhatsApp belum diverifikasi.'
+                ].filter(Boolean).join('\n');
 
                 navigator.clipboard.writeText(summaryText);
                 this.showToast('Rincian sumber data bisnis berhasil disalin!');
@@ -4688,11 +4698,14 @@ const ScraperClient = {
             'Nama Tempat': item.name,
             'Kategori Usaha': item.category,
             'Lokasi / Alamat': item.address,
-            'Nomor HP (WhatsApp)': item.phone,
+            'Telepon Tercantum': item.phone,
             'Tautan Medsos / Web': item.social_media,
             'Jam Operasional': item.opening_hours,
-            'Rating Bintang': item.rating,
-            'Jumlah Ulasan': item.reviews_count
+            'Rating Bintang': this.metricsForItem(item).ratingAvailable ? item.rating : '',
+            'Jumlah Ulasan': this.metricsForItem(item).reviewsAvailable ? item.reviews_count : '',
+            'Sumber Data': this.sourceForItem(item).source_name,
+            'URL Sumber': this.sourceForItem(item).source_url || '',
+            'Lisensi / Dasar Penggunaan': this.sourceForItem(item).license || this.sourceForItem(item).usage_basis || ''
         }));
 
         const ws = XLSX.utils.json_to_sheet(excelRows);
@@ -4717,11 +4730,14 @@ const ScraperClient = {
             'Nama Tempat': item.name,
             'Kategori Usaha': item.category,
             'Lokasi / Alamat': item.address,
-            'Nomor HP (WhatsApp)': item.phone,
+            'Telepon Tercantum': item.phone,
             'Tautan Medsos / Web': item.social_media,
             'Jam Operasional': item.opening_hours,
-            'Rating Bintang': item.rating,
-            'Jumlah Ulasan': item.reviews_count
+            'Rating Bintang': this.metricsForItem(item).ratingAvailable ? item.rating : '',
+            'Jumlah Ulasan': this.metricsForItem(item).reviewsAvailable ? item.reviews_count : '',
+            'Sumber Data': this.sourceForItem(item).source_name,
+            'URL Sumber': this.sourceForItem(item).source_url || '',
+            'Lisensi / Dasar Penggunaan': this.sourceForItem(item).license || this.sourceForItem(item).usage_basis || ''
         }));
 
         const ws = XLSX.utils.json_to_sheet(excelRows);
@@ -5047,10 +5063,14 @@ const ScraperClient = {
                     'Nama Tempat': item.name,
                     'Kategori': item.category,
                     'Alamat Lengkap': item.address,
-                    'Nomor HP (WhatsApp)': item.phone,
-                    'Rating': item.rating,
-                    'Jumlah Ulasan': item.reviews_count,
-                    'Jam Operasional': item.opening_hours
+                    'Telepon Tercantum': item.phone,
+                    'Website': item.website || item.social_media || '',
+                    'Rating': this.metricsForItem(item).ratingAvailable ? item.rating : '',
+                    'Jumlah Ulasan': this.metricsForItem(item).reviewsAvailable ? item.reviews_count : '',
+                    'Jam Operasional': item.opening_hours,
+                    'Sumber Data': this.sourceForItem(item).source_name,
+                    'URL Sumber': this.sourceForItem(item).source_url || '',
+                    'Lisensi / Dasar Penggunaan': this.sourceForItem(item).license || this.sourceForItem(item).usage_basis || ''
                 }));
 
                 const ws = XLSX.utils.json_to_sheet(excelRows);
@@ -5102,6 +5122,7 @@ window.ScraperClient = ScraperClient;
         detectionPollTimer: null,
 
         init() {
+            if (window.ScraperClient?.googleMapsOnly) return;
             this.bindEvents();
             this.loadReadyRegions();
         },
@@ -5482,8 +5503,8 @@ window.ScraperClient = ScraperClient;
                     social_media: website,
                     website: website,
                     opening_hours: hours,
-                    rating: item.rating || 4.5,
-                    reviews_count: item.reviews_count || 15,
+                    rating: item.rating || 0,
+                    reviews_count: item.reviews_count || 0,
                     lat: item.lat,
                     lng: item.lng
                 };
@@ -5509,7 +5530,7 @@ window.ScraperClient = ScraperClient;
                     <td style="white-space: nowrap; font-size: 0.76rem;">${phoneDisplay}</td>
                     <td>${webDisplay}</td>
                     <td style="font-size: 0.72rem; color: #64748b; white-space: nowrap;">${this.esc(item.opening_hours || '-')}</td>
-                    <td style="font-weight: 700; color: #0f172a; white-space: nowrap;"><i class="fa-solid fa-star" style="color: #f59e0b;"></i> ${item.rating || '4.5'} <span style="font-size: 0.65rem; color:#94a3b8;">(${item.reviews_count || 12})</span></td>
+                    <td style="font-weight: 700; color: #64748b; white-space: nowrap;">${item.rating > 0 ? `⭐ ${item.rating} (${item.reviews_count || 0})` : 'Tidak tersedia'}</td>
                     <td style="text-align: right; white-space: nowrap;">
                         <div style="display: inline-flex; gap: 4px;">
                             <button class="btn btn-outline btn-sm btn-mdb-copy" title="Salin Pesan Penawaran Terpersonalisasi" style="font-size: 0.68rem; padding: 4px 7px;">
@@ -5555,6 +5576,7 @@ window.ScraperClient = ScraperClient;
 
         // ─── READY REGIONS LOADER & QUICK CHIPS ───
         async loadReadyRegions() {
+            if (window.ScraperClient?.googleMapsOnly) return;
             const container = document.getElementById('ready-regions-chips-container');
             try {
                 let data = null;
@@ -5820,8 +5842,8 @@ window.ScraperClient = ScraperClient;
                                         lng: parseFloat(p.lng || p.longitude || 0),
                                         social_media: p.website || '-',
                                         opening_hours: p.opening_hours || '-',
-                                        rating: parseFloat(p.rating || 4.5),
-                                        reviews_count: parseInt(p.reviews_count || 25),
+                                        rating: p.rating !== undefined && p.rating !== null ? parseFloat(p.rating) : 0,
+                                        reviews_count: p.reviews_count !== undefined && p.reviews_count !== null ? parseInt(p.reviews_count, 10) : 0,
                                         status: 'none',
                                         source: p.source || 'master_db',
                                         source_name: 'Master DB Wilayah',
@@ -5947,6 +5969,7 @@ window.ScraperClient = ScraperClient;
     // ─── HOOK INTO SCRAPER CLIENT ───
     if (window.ScraperClient) {
         window.ScraperClient.checkMasterDbStatus = function() {
+            if (this.googleMapsOnly) return;
             const kabSelect = document.getElementById('filter-kabupaten');
             if (!kabSelect || !kabSelect.value) {
                 MasterDB.hideAllStates();
@@ -5974,4 +5997,3 @@ window.ScraperClient = ScraperClient;
 
     window.MasterDB = MasterDB;
 })();
-

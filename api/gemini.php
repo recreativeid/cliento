@@ -24,8 +24,12 @@ if ($action === 'generate_pitch') {
     $businessName = trim($input['business_name'] ?? 'Kopi Senja');
     $category     = trim($input['category'] ?? 'Cafe & Coffee Shop');
     $address      = trim($input['address'] ?? 'Magelang');
-    $rating       = trim($input['rating'] ?? '4.8');
-    $reviewsCount = trim($input['reviews_count'] ?? '85');
+    $rating       = trim((string)($input['rating'] ?? ''));
+    $reviewsCount = trim((string)($input['reviews_count'] ?? '0'));
+    if (!is_numeric($rating) || (float)$rating <= 0) {
+        $rating = 'Tidak tersedia';
+        $reviewsCount = 'Tidak tersedia';
+    }
     $hasWebsite   = !empty($input['has_website']) ? 'Ya' : 'Belum Ada';
     
     // User's service & campaign parameters
@@ -72,6 +76,8 @@ if ($action === 'generate_pitch') {
 
     // Build the AI Prompt following high-converting sales psychology
     $prompt = "Kamu adalah Master AI Sales Copywriter untuk B2B dan UMKM Indonesia.
+Gunakan hanya fakta yang diberikan. Rating atau ulasan yang tidak tersedia bukan rating nol atau ulasan sedikit.
+Jangan mengarang kontak, website, reputasi, atau klaim telah melakukan audit Google Maps.
 Tugasmu adalah membuat 1 naskah pesan WhatsApp cold outreach yang SANGAT PERSUASIF, SOPAN, HANGAT, dan MENGGERAKKAN MINAT CLOSING untuk pemilik/manajemen bisnis sasaran berikut:
 
 --- DATA TARGET CALON KLIEN ---
@@ -173,12 +179,11 @@ Sertakan poin penting dari gambar tersebut (misalnya diskon, bonus, keunggulan, 
 
     // High quality intelligent fallback if Gemini is offline
     if (!$aiResponseText) {
-        $aiResponseText = "Halo kak, salam hangat untuk tim manajemen *{$businessName}* di {$address} 👋\n\n"
-            . "Kami sempat melihat profil {$businessName} di Google Maps dengan reputasi yang luar biasa (Rating {$rating} ⭐). Kami sangat mengapresiasi kualitas pelayanan kakak yang sudah dipercaya oleh banyak pelanggan.\n\n"
+        $aiResponseText = "Halo kak, salam hangat untuk tim manajemen *{$businessName}* di {$address}.\n\n"
+            . "Kami menemukan profil publik {$businessName} pada sumber yang tersedia. Data rating dan ulasan Google: {$rating} ({$reviewsCount}). Kami hanya menggunakan informasi yang tercantum pada sumber tersebut.\n\n"
             . "Di era sekarang, persaingan usaha {$category} di sekitar area ini semakin ketat. Kami melihat ada potensi besar bagi *{$businessName}* untuk mendominasi peringkat teratas dan menjaring lebih banyak pembeli lokal baru tanpa harus boros biaya iklan berbayar.\n\n"
-            . "Kebetulan tim cliento sedang membuka program *{$myOffer}* khusus pelaku usaha pilihan di kawasan ini. Kami ingin membantu mengoptimalkan visibilitas bisnis kakak agar calon pelanggan di Google langsung memilih *{$businessName}* ketimbang kompetitor.\n\n"
-            . "Kira-kira jika kami kirimkan rincian insight singkatnya via WhatsApp ini, boleh kak? Tidak ada ikatan apa pun, murni sharing untuk kemajuan {$businessName} 🙏\n\n"
-            . "Terima kasih banyak atas waktunya kak, sukses dan laris selalu usahanya!";
+            . "Kebetulan tim cliento sedang membuka program *{$myOffer}* untuk membantu kelengkapan informasi dan jangkauan digital *{$businessName}*.\n\n"
+            . "Kira-kira jika kami kirimkan ringkasan solusi singkat via WhatsApp ini, boleh kak? Terima kasih.";
     }
 
     jsonResponse([

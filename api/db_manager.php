@@ -322,7 +322,7 @@ function syncToScrapedItems($pdo, $records, $regionName, $provinceName) {
         $itemStmt = $pdo->prepare("
             INSERT INTO scraped_items 
             (history_id, name, address, phone, lat, lng, category, social_media, opening_hours, rating, reviews_count, status, insights_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, 4.5, 10, 'none', ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'none', ?, CURRENT_TIMESTAMP)
         ");
 
         $pdo->beginTransaction();
@@ -337,6 +337,8 @@ function syncToScrapedItems($pdo, $records, $regionName, $provinceName) {
             $lng     = (float)($r['lng'] ?? ($r['lon'] ?? 0));
             $cat     = $r['category_name'] ?? ($r['category'] ?? 'Bisnis');
             $hours   = $r['opening_hours'] ?? '';
+            $rating  = (float)($r['rating'] ?? 0);
+            $reviews = (int)($r['reviews_count'] ?? 0);
 
             // Generate structured AI insight preview
             $insights = [
@@ -358,6 +360,8 @@ function syncToScrapedItems($pdo, $records, $regionName, $provinceName) {
                 $lng,
                 $cat,
                 $hours,
+                $rating,
+                $reviews,
                 json_encode($insights, JSON_UNESCAPED_UNICODE)
             ]);
 

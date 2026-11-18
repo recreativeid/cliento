@@ -1,5 +1,5 @@
 /**
- * Client Reach AI - Google Drive Style Nested Folders & Excel Data Explorer
+ * cliento - Google Drive Style Nested Folders & Excel Data Explorer
  * Supports folders inside folders (e.g., Month -> Date -> Files),
  * interactive breadcrumbs navigation, direct Excel (.xlsx) downloads,
  * prospect status marking (Green = Prospek, Red = Ditolak, White = Belum),
@@ -396,6 +396,28 @@ const ArchiveManager = {
     /**
      * Download Excel file directly from file card
      */
+    excelRowForItem(item, index) {
+        const metrics = item.insights?.metrics;
+        const source = item.provenance || item.insights?.provenance || {};
+        const ratingAvailable = metrics ? metrics.rating_available === true : Number(item.rating) > 0;
+        const reviewsAvailable = metrics ? metrics.reviews_count_available === true : Number(item.rating) > 0;
+        return {
+            'No': index + 1,
+            'Nama Tempat': item.name,
+            'Kategori': item.category,
+            'Alamat Lengkap': item.address,
+            'Telepon Tercantum': item.phone,
+            'Website': item.website || item.social_media || '',
+            'Rating': ratingAvailable ? item.rating : '',
+            'Jumlah Ulasan': reviewsAvailable ? item.reviews_count : '',
+            'Jam Operasional': item.opening_hours,
+            'Sumber Data': source.source_name || item.source_name || '',
+            'URL Sumber': source.source_url || item.source_url || '',
+            'Lisensi / Dasar Penggunaan': source.license || source.usage_basis || '',
+            'Status Prospek': item.status === 'prospect' ? 'Prospek' : (item.status === 'rejected' ? 'Bukan Prospek' : 'Belum Dihubungi')
+        };
+    },
+
     async downloadArchiveExcel(archiveId, archiveName) {
         try {
             let data = null;
@@ -412,17 +434,7 @@ const ArchiveManager = {
                 data = { success: true, items: found ? found.items : [] };
             }
             if (data.success && data.items && data.items.length > 0) {
-                const excelRows = data.items.map((item, idx) => ({
-                    'No': idx + 1,
-                    'Nama Tempat': item.name,
-                    'Kategori': item.category,
-                    'Alamat Lengkap': item.address,
-                    'Nomor HP (WhatsApp)': item.phone,
-                    'Rating': item.rating,
-                    'Jumlah Ulasan': item.reviews_count,
-                    'Jam Operasional': item.opening_hours,
-                    'Status Prospek': item.status === 'prospect' ? 'Prospek' : (item.status === 'rejected' ? 'Bukan Prospek' : 'Belum Dihubungi')
-                }));
+                const excelRows = data.items.map((item, idx) => this.excelRowForItem(item, idx));
 
                 const ws = XLSX.utils.json_to_sheet(excelRows);
                 const wb = XLSX.utils.book_new();
@@ -603,7 +615,7 @@ const ArchiveManager = {
                     <div>
                         <div class="d-flex justify-between align-center" style="margin-bottom: 6px;">
                             <span class="badge badge-blue" style="font-size:0.65rem;">${it.category}</span>
-                            <span style="font-weight: 700; color: #f59e0b; font-size: 0.78rem;">⭐ ${it.rating || '-'} (${it.reviews_count || 0})</span>
+                            <span style="font-weight: 700; color: #f59e0b; font-size: 0.78rem;">${it.rating ? `⭐ ${it.rating}` : 'Rating tidak tersedia'} · ${it.insights?.metrics ? (it.insights.metrics.reviews_count_available ? `${it.reviews_count} ulasan` : 'Ulasan tidak tersedia') : (it.rating ? `${it.reviews_count || 0} ulasan` : 'Ulasan tidak tersedia')}</span>
                         </div>
                         <div style="font-weight: 700; font-size: 0.9rem; color: #0f172a; margin-bottom: 4px;">${it.name}</div>
                         <div style="font-size: 0.74rem; color: #64748b; margin-bottom: 6px;"><i class="fa-solid fa-location-dot"></i> ${it.address}</div>
@@ -791,23 +803,13 @@ const ArchiveManager = {
             return;
         }
 
-        const excelRows = this.currentItems.map((item, idx) => ({
-            'No': idx + 1,
-            'Nama Tempat': item.name,
-            'Kategori': item.category,
-            'Alamat Lengkap': item.address,
-            'Nomor HP (WhatsApp)': item.phone,
-            'Rating': item.rating,
-            'Jumlah Ulasan': item.reviews_count,
-            'Jam Operasional': item.opening_hours,
-            'Status Prospek': item.status === 'prospect' ? 'Prospek' : (item.status === 'rejected' ? 'Bukan Prospek' : 'Belum Dihubungi')
-        }));
+        const excelRows = this.currentItems.map((item, idx) => this.excelRowForItem(item, idx));
 
         const ws = XLSX.utils.json_to_sheet(excelRows);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Koleksi Klien');
 
-        const filename = `${this.currentArchiveName || 'Koleksi_ClientReach'}.xlsx`;
+        const filename = `${this.currentArchiveName || 'Koleksi_cliento'}.xlsx`;
         XLSX.writeFile(wb, filename);
     },
 

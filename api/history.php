@@ -86,7 +86,7 @@ if ($action === 'save_to_archive') {
         $archiveId = (int)$pdo->lastInsertId();
 
         // Clone items into the archive
-        $copyStmt = $pdo->prepare("INSERT INTO scraped_items (archive_id, name, address, phone, lat, lng, category, social_media, opening_hours, rating, reviews_count, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none')");
+        $copyStmt = $pdo->prepare("INSERT INTO scraped_items (archive_id, name, address, phone, lat, lng, category, social_media, opening_hours, rating, reviews_count, status, insights_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none', ?)");
         foreach ($items as $it) {
             $copyStmt->execute([
                 $archiveId,
@@ -99,7 +99,8 @@ if ($action === 'save_to_archive') {
                 $it['social_media'],
                 $it['opening_hours'],
                 $it['rating'],
-                $it['reviews_count']
+                $it['reviews_count'],
+                $it['insights_json'] ?? null
             ]);
         }
 
