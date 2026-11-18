@@ -449,39 +449,30 @@
       <!-- SUB-VIEW 1: Setup & Mutually Exclusive Scoping -->
       <div id="scraper-setup-view">
 
-        <!-- PANDUAN PENGGUNAAN CEPAT (Minimalis, Vektor Sederhana, Tanpa Emo) -->
-        <div class="quick-usage-guide">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <i class="fa-solid fa-compass" style="color: #0f172a; font-size: 0.88rem;"></i>
-              <strong style="font-size: 0.80rem; color: #0f172a;">Panduan Penggunaan Cepat</strong>
+        <!-- Petunjuk Singkat (Collapsible / Rapi) -->
+        <details style="margin-bottom: 14px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+          <summary style="font-size: 0.76rem; font-weight: 700; color: #1e293b; cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
+            <span style="display: flex; align-items: center; gap: 8px;">
+              <i class="fa-solid fa-circle-question" style="color: #2563eb;"></i>
+              <span>Alur Singkat: 1. Wilayah ➔ 2. Kategori Usaha ➔ 3. Ekstraksi Leads</span>
+            </span>
+            <span style="font-size: 0.68rem; color: #2563eb; font-weight: 600;">Lihat Panduan <i class="fa-solid fa-chevron-down" style="font-size: 0.62rem;"></i></span>
+          </summary>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f1f5f9;">
+            <div style="font-size: 0.72rem; color: #475569;">
+              <strong style="color: #0f172a; display: block; margin-bottom: 2px;">1. Tentukan Wilayah</strong>
+              Pilih Provinsi &amp; Kab/Kota target (opsional: pilih Kecamatan &amp; Kelurahan) di panel kiri.
             </div>
-            <span style="font-size: 0.66rem; color: #64748b; font-weight: 500;">Alur Pencarian &amp; Ekstraksi Data</span>
-          </div>
-          <div class="guide-steps-grid">
-            <div class="guide-step-item">
-              <span class="guide-step-num">1</span>
-              <div>
-                <strong>Tentukan Area Target</strong>
-                <p>Pilih wilayah administratif bertingkat (Provinsi, Kab/Kota) atau tentukan titik koordinat peta dengan radius.</p>
-              </div>
+            <div style="font-size: 0.72rem; color: #475569;">
+              <strong style="color: #0f172a; display: block; margin-bottom: 2px;">2. Pilih Kategori Bisnis</strong>
+              Pilih bidang usaha yang ingin disasar (misal: Kuliner, PT/CV, Kesehatan, atau ketik kata kunci).
             </div>
-            <div class="guide-step-item">
-              <span class="guide-step-num">2</span>
-              <div>
-                <strong>Pratinjau Titik Bisnis</strong>
-                <p>Pilih kategori dan wilayah, buka Google Maps, lalu impor hasil scraping ekstensi untuk direkap oleh sistem.</p>
-              </div>
-            </div>
-            <div class="guide-step-item">
-              <span class="guide-step-num">3</span>
-              <div>
-                <strong>Tarik Data Lengkap</strong>
-                <p>Klik tombol Scrape Data Lengkap untuk mengumpulkan kontak WhatsApp, jam operasional, dan analisis prospek bisnis.</p>
-              </div>
+            <div style="font-size: 0.72rem; color: #475569;">
+              <strong style="color: #0f172a; display: block; margin-bottom: 2px;">3. Mulai Ekstraksi Leads</strong>
+              Pilih mesin (Cloud API, Mesin Lokal, atau Buru WA Sosmed) lalu klik <strong>Mulai Cari &amp; Ambil Data Leads</strong>.
             </div>
           </div>
-        </div>
+        </details>
 
         <div class="scraper-split-container">
           
@@ -489,293 +480,255 @@
           <div class="scraper-left-panel">
             <div class="d-flex justify-between align-center" style="margin-bottom: 12px;">
               <div class="card-title" style="font-size: 0.92rem;">
-                <i class="fa-solid fa-location-crosshairs"></i> Parameter Pencarian Klien
+                <i class="fa-solid fa-sliders" style="color: #2563eb;"></i> Pengaturan Ekstraksi Leads
               </div>
               <button class="btn btn-outline btn-sm" id="btn-show-history" style="font-size: 0.72rem; padding: 4px 8px;">
                 <i class="fa-solid fa-clock-rotate-left"></i> Riwayat
               </button>
             </div>
 
-            <!-- 1. MUTUALLY EXCLUSIVE ZONE MODE TABS -->
-            <div class="zone-mode-tabs" style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: #ffffff; border: 1px solid #e2e8f0; padding: 4px; border-radius: 10px; margin-bottom: 14px;">
-              <button type="button" class="zone-mode-btn active" id="btn-mode-boundary" style="padding: 8px 6px; font-size: 0.74rem; font-weight: 600; border-radius: 8px; border: 1px solid #e2e8f0; cursor: pointer; transition: all 0.2s; background: #0f172a; color: #ffffff;">
-                <i class="fa-solid fa-map"></i> 1. Wilayah Administratif
-              </button>
-              <button type="button" class="zone-mode-btn" id="btn-mode-radius" style="padding: 8px 6px; font-size: 0.74rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s; background: transparent; color: #475569;">
-                <i class="fa-solid fa-crosshairs"></i> 2. Titik Peta & Radius
-              </button>
-            </div>
-
-            <!-- ZONE CONTAINER A: Batas Wilayah Administratif Penuh (NO RADIUS) -->
-            <div id="zone-boundary-container" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 14px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <span style="font-size: 0.72rem; font-weight: 700; color: #0f172a; text-transform: uppercase;">
-                  <i class="fa-solid fa-landmark"></i> Pilih Daerah Administratif
-                </span>
-                <span id="badge-garis-merah" class="badge" style="background:#fef2f2; border: 1px solid #f87171; color:#dc2626; font-size: 0.68rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px;" title="Klik untuk memusatkan peta ke garis merah batas wilayah">
-                  <span style="display:inline-block; width:8px; height:8px; background:#dc2626; border-radius:50%;"></span>
-                  <span>Garis Merah Batas Aktif</span>
-                </span>
-              </div>
-
-              <!-- Provinsi & Kab/Kota Dipisah Bertingkat (Wajib) -->
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-                <div>
-                  <label style="font-size: 0.68rem; color: #475569; font-weight: 600; display:block; margin-bottom: 2px;">Provinsi (Wajib)</label>
-                  <select id="filter-provinsi" class="form-select" style="font-size: 0.76rem; padding: 6px 8px;"></select>
-                </div>
-                <div>
-                  <label style="font-size: 0.68rem; color: #475569; font-weight: 600; display:block; margin-bottom: 2px;">Kab / Kota (Wajib)</label>
-                  <select id="filter-kabupaten" class="form-select" style="font-size: 0.76rem; padding: 6px 8px;"></select>
-                </div>
-              </div>
-
-              <!-- Kecamatan & Kelurahan (Opsional) -->
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                <div>
-                  <label style="font-size: 0.68rem; color: #64748b; display:block; margin-bottom: 2px;">Kecamatan (Opsional)</label>
-                  <select id="filter-kecamatan" class="form-select" style="font-size: 0.76rem; padding: 6px 8px;"></select>
-                </div>
-                <div>
-                  <label style="font-size: 0.68rem; color: #64748b; display:block; margin-bottom: 2px;">Kelurahan (Opsional)</label>
-                  <select id="filter-kelurahan" class="form-select" style="font-size: 0.76rem; padding: 6px 8px;"></select>
-                </div>
-              </div>
-
-              <small style="display: block; font-size: 0.68rem; color: #64748b; margin-top: 6px;">
-                *Target sasaran dan preview hanya mengambil bisnis di dalam batas garis merah wilayah di atas.
-              </small>
-            </div>
-
-            <!-- ZONE CONTAINER B: Titik Peta & Radius (NO PROVINSI/KAB/KOTA REQUIRED) -->
-            <div id="zone-radius-container" style="display: none; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 14px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <span style="font-size: 0.72rem; font-weight: 700; color: #0f172a; text-transform: uppercase;">
-                  <i class="fa-solid fa-bullseye"></i> Titik Lokasi Peta & Jangkauan
-                </span>
-                <span id="radius-km-display" style="font-size: 0.72rem; font-weight: 700; color: #2563eb;">3 KM</span>
-              </div>
-              <p style="font-size: 0.7rem; color: #475569; margin-bottom: 8px; line-height: 1.3;">
-                <i class="fa-solid fa-arrow-pointer" style="color: #2563eb;"></i> <strong>Klik di titik mana saja pada peta pratinjau di kanan</strong> untuk menempatkan pin bisnis target.
-              </p>
-              <div style="font-size: 0.72rem; color: #64748b; margin-bottom: 8px; background: #ffffff; padding: 6px 10px; border-radius: 6px; border: 1px solid #e2e8f0;">
-                Koordinat Pin: <strong id="display-selected-coord" style="color: #0f172a;">-7.4589, 110.2251</strong>
+            <!-- LANGKAH 1: PILIH WILAYAH -->
+            <div style="margin-bottom: 12px;">
+              <div style="font-size: 0.68rem; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
+                Langkah 1 · Tentukan Wilayah Target
               </div>
               
-              <label style="font-size: 0.68rem; color: #475569; font-weight: 600; display:block; margin-bottom: 2px;">Atur Jarak Radius</label>
-              <input type="range" id="unified-radius-slider" min="1" max="25" step="0.5" value="3" style="width: 100%;">
+              <!-- Zone Mode Tabs -->
+              <div class="zone-mode-tabs" style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 3px; border-radius: 8px; margin-bottom: 8px;">
+                <button type="button" class="zone-mode-btn active" id="btn-mode-boundary" style="padding: 6px; font-size: 0.72rem; font-weight: 600; border-radius: 6px; border: 1px solid #e2e8f0; cursor: pointer; transition: all 0.2s; background: #0f172a; color: #ffffff;">
+                  <i class="fa-solid fa-map"></i> Wilayah Administratif
+                </button>
+                <button type="button" class="zone-mode-btn" id="btn-mode-radius" style="padding: 6px; font-size: 0.72rem; font-weight: 600; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s; background: transparent; color: #475569;">
+                  <i class="fa-solid fa-crosshairs"></i> Titik Peta &amp; Radius
+                </button>
+              </div>
+
+              <!-- Container A: Wilayah Administratif -->
+              <div id="zone-boundary-container" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                  <span style="font-size: 0.70rem; font-weight: 600; color: #334155;">Pilih Tingkat Daerah:</span>
+                  <span id="badge-garis-merah" class="badge" style="background:#fef2f2; border: 1px solid #f87171; color:#dc2626; font-size: 0.64rem; font-weight:700; cursor:pointer;" title="Klik untuk memusatkan peta ke garis batas">
+                    Batas Garis Merah
+                  </span>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
+                  <div>
+                    <label style="font-size: 0.66rem; color: #475569; font-weight: 600; display:block; margin-bottom: 2px;">Provinsi</label>
+                    <select id="filter-provinsi" class="form-select" style="font-size: 0.74rem; padding: 5px 8px;"></select>
+                  </div>
+                  <div>
+                    <label style="font-size: 0.66rem; color: #475569; font-weight: 600; display:block; margin-bottom: 2px;">Kab / Kota</label>
+                    <select id="filter-kabupaten" class="form-select" style="font-size: 0.74rem; padding: 5px 8px;"></select>
+                  </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                  <div>
+                    <label style="font-size: 0.66rem; color: #64748b; display:block; margin-bottom: 2px;">Kecamatan (Opsional)</label>
+                    <select id="filter-kecamatan" class="form-select" style="font-size: 0.74rem; padding: 5px 8px;"></select>
+                  </div>
+                  <div>
+                    <label style="font-size: 0.66rem; color: #64748b; display:block; margin-bottom: 2px;">Kelurahan (Opsional)</label>
+                    <select id="filter-kelurahan" class="form-select" style="font-size: 0.74rem; padding: 5px 8px;"></select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Container B: Radius Peta -->
+              <div id="zone-radius-container" style="display: none; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                  <span style="font-size: 0.70rem; font-weight: 600; color: #334155;">Jangkauan Radius Peta:</span>
+                  <span id="radius-km-display" style="font-size: 0.70rem; font-weight: 700; color: #2563eb;">3 KM</span>
+                </div>
+                <div style="font-size: 0.68rem; color: #64748b; margin-bottom: 6px;">
+                  Klik pada peta pratinjau di kanan untuk menempatkan pin. Koordinat: <strong id="display-selected-coord" style="color: #0f172a;">-7.4589, 110.2251</strong>
+                </div>
+                <input type="range" id="unified-radius-slider" min="1" max="25" step="0.5" value="3" style="width: 100%;">
+              </div>
             </div>
 
-            <!-- ═══════════════════════════════════════════════════════════════ -->
-            <!-- UNIFIED SCRAPER CONTROLS (Parameter Target & Aksi Scraping)     -->
-            <!-- ═══════════════════════════════════════════════════════════════ -->
-            <div class="scraper-controls-card" style="background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04);">
-              
-              <!-- Target Parameter Selector (Keyword vs Category) -->
-              <div class="form-group" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 10px;">
-                <div class="d-flex justify-between align-center" style="margin-bottom: 6px;">
-                  <span style="font-size: 0.74rem; font-weight: 700; color: #0f172a;">Target Sasaran Usaha</span>
-                  <div class="target-mode-toggle" style="display: flex; gap: 4px; background: #ffffff; border: 1px solid #e2e8f0; padding: 2px; border-radius: 6px;">
-                    <button type="button" class="target-toggle-btn" id="btn-toggle-keyword" style="padding: 3px 6px; font-size: 0.66rem; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; background: transparent; color: #64748b;">Cari Keyword</button>
-                    <button type="button" class="target-toggle-btn active" id="btn-toggle-preset" style="padding: 3px 6px; font-size: 0.66rem; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; background: #0f172a; color: #ffffff;">Pilih Kategori</button>
-                  </div>
+            <!-- LANGKAH 2: PILIH TARGET SASARAN USAHA -->
+            <div style="margin-bottom: 12px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <div style="font-size: 0.68rem; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px;">
+                  Langkah 2 · Target Kategori Usaha
                 </div>
-
-                <!-- Option 1: Search Keyword Box -->
-                <div id="target-keyword-box" style="display: none;">
-                  <div style="display: flex; gap: 6px;">
-                    <input type="text" id="target-keyword-input" class="form-input" 
-                           placeholder="Ketik kata kunci (misal: cafe, laundry, bengkel, klinik)..." value="cafe" style="font-size: 0.78rem;">
-                    <button class="btn btn-primary btn-sm" id="btn-trigger-search" title="Cari & Pratinjau Titik Potensial di Peta">
-                      <i class="fa-solid fa-magnifying-glass"></i>
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Option 2: Cascading Two-Tier Category Dropdowns -->
-                <div id="target-preset-box" style="display: block;">
-                  <div style="display: flex; flex-direction: column; gap: 6px;">
-                    <div>
-                      <label style="font-size: 0.66rem; font-weight: 700; color: #334155; margin-bottom: 2px; display: block;">
-                        1. Pilih Bidang Utama:
-                      </label>
-                      <select id="target-sector-select" class="form-select" style="font-size: 0.76rem; font-weight: 600; background: #ffffff;">
-                        <option value="semua_bidang" selected>Semua Bidang Usaha (Semua Kategori)</option>
-                        <option value="perusahaan">Perusahaan, Korporasi & Industri (PT / CV)</option>
-                        <option value="konstruksi">Konstruksi, Arsitektur & Properti</option>
-                        <option value="jasa">Jasa Bisnis, Legal & Profesional</option>
-                        <option value="it">Teknologi, IT & Telekomunikasi</option>
-                        <option value="pendidikan">Pendidikan & Edukasi</option>
-                        <option value="kesehatan">Kesehatan, Medis & Farmasi</option>
-                        <option value="pemerintah">Instansi Pemerintah & Layanan Publik</option>
-                        <option value="kuliner">Kuliner, Makanan & Minuman</option>
-                        <option value="retail">Perdagangan, Retail & Toko</option>
-                        <option value="otomotif">Otomotif & Transportasi</option>
-                        <option value="akomodasi">Akomodasi, Pariwisata & Hiburan</option>
-                        <option value="kecantikan">Kecantikan, Kebugaran & Relaksasi</option>
-                        <option value="keuangan">Lembaga Keuangan & Asuransi</option>
-                        <option value="pertanian">Pertanian, Peternakan & Agribisnis</option>
-                        <option value="ibadah">Tempat Ibadah & Yayasan Sosial</option>
-                        <option value="lainnya">Bidang Lainnya & Usaha Umum</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style="font-size: 0.66rem; font-weight: 700; color: #334155; margin-bottom: 2px; display: block;">
-                        2. Pilih Jenis / Instansi Spesifik:
-                      </label>
-                      <select id="target-category-select" class="form-select" style="font-size: 0.76rem;">
-                        <option value="all" selected>Semua Jenis Bisnis & Instansi</option>
-                        <option value="semua_perusahaan">Semua Kantor Perusahaan & PT/CV</option>
-                        <option value="kantor_pt">Kantor PT (Perseroan Terbatas)</option>
-                        <option value="kantor_cv">Kantor CV (Persekutuan Komanditer)</option>
-                        <option value="pabrik_manufaktur">Pabrik, Manufaktur & Industri</option>
-                        <option value="distributor_supplier">Distributor, Supplier & Agen Grosir</option>
-                        <option value="pergudangan_logistik">Pergudangan (Warehouse) & Depo</option>
-                        <option value="holding_corporate">Kantor Pusat / Holding Corporate</option>
-                      </select>
-                    </div>
-                  </div>
+                <div class="target-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 2px; border-radius: 6px;">
+                  <button type="button" class="target-toggle-btn active" id="btn-toggle-preset" style="padding: 2px 6px; font-size: 0.64rem; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; background: #0f172a; color: #ffffff;">Pilih Kategori</button>
+                  <button type="button" class="target-toggle-btn" id="btn-toggle-keyword" style="padding: 2px 6px; font-size: 0.64rem; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; background: transparent; color: #64748b;">Cari Keyword</button>
                 </div>
               </div>
 
-              <!-- Candidate Places Preview List -->
-              <div style="margin-bottom: 12px;">
-                <div class="d-flex justify-between align-center" style="margin-bottom: 4px;">
-                  <span style="font-size: 0.72rem; font-weight: 600; color: #0f172a;">Pratinjau Calon Klien</span>
-                  <span class="badge" style="background:#ffffff; border:1px solid #e2e8f0; color:#0f172a; font-size: 0.65rem;" id="preview-count-badge">Memuat...</span>
-                </div>
-                <div id="pre-scrape-places-list" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; max-height: 95px; overflow-y: auto;">
-                </div>
-              </div>
-
-              <!-- Pemisah Mode Scraping: Tertarget vs Seluruh Kota -->
-              <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 6px;">
-
-                <!-- KARTU MODE A: PENCARIAN TERTARGET (SESUAI FILTER DI ATAS) -->
-                <div style="background: #ffffff; border: 1.5px solid #2563eb; border-radius: 10px; padding: 12px; box-shadow: 0 2px 6px rgba(37,99,235,0.06);">
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                    <span style="font-size: 0.68rem; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px;">Mode A · Pencarian Tertarget</span>
-                    <span style="font-size: 0.62rem; font-weight: 600; background: #eff6ff; color: #1d4ed8; padding: 2px 6px; border-radius: 4px; border: 1px solid #bfdbfe;">Filter & Radius</span>
-                  </div>
-                  <p style="font-size: 0.7rem; color: #475569; margin-bottom: 8px; line-height: 1.35;">
-                    Buka pencarian Google Maps sesuai kategori dan wilayah. Klik Mulai scraping pada ekstensi Chrome, lalu unduh hasilnya sebagai JSON.
-                  </p>
-
-                  <p style="font-size:0.72rem;color:#475569;">Atur batas 1&ndash;100 data per sesi pada panel ekstensi Google Maps.</p>
-
-                  <!-- TOMBOL MODE A TUNGGAL: VERIFIKASI MANUAL GOOGLE MAPS -->
-                  <button type="button" class="btn btn-primary btn-block" id="btn-execute-scrape" style="padding: 10px; font-size: 0.82rem; font-weight: 700; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: none; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; color: #ffffff; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28); cursor: pointer;" title="Buka pencarian Google Maps untuk ekstensi Chrome">
-                    <i class="fa-solid fa-map-location-dot"></i>
-                    <span>Buka Google Maps</span>
-                    <span style="font-size: 0.62rem; background: rgba(255,255,255,0.22); padding: 2px 6px; border-radius: 4px; margin-left: 2px;">Sumber utama</span>
+              <!-- Option 1: Search Keyword Box -->
+              <div id="target-keyword-box" style="display: none; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px;">
+                <div style="display: flex; gap: 6px;">
+                  <input type="text" id="target-keyword-input" class="form-input" 
+                         placeholder="Ketik kata kunci (misal: cafe, laundry, bengkel, apotek)..." value="cafe" style="font-size: 0.76rem; padding: 6px 8px;">
+                  <button class="btn btn-primary btn-sm" id="btn-trigger-search" title="Terapkan Keyword">
+                    <i class="fa-solid fa-magnifying-glass"></i>
                   </button>
-                  <div style="text-align: center; margin-top: 6px;">
-                    <a href="javascript:void(0)" id="btn-scrape-gmaps-auto" style="font-size: 0.68rem; color: #64748b; text-decoration: none;">
-                      <i class="fa-solid fa-server"></i> Buka pencarian Google Maps
+                </div>
+              </div>
+
+              <!-- Option 2: Cascading Two-Tier Category Dropdowns -->
+              <div id="target-preset-box" style="display: block; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <div>
+                    <label style="font-size: 0.64rem; font-weight: 700; color: #334155; margin-bottom: 2px; display: block;">
+                      Bidang Utama:
+                    </label>
+                    <select id="target-sector-select" class="form-select" style="font-size: 0.74rem; font-weight: 600; background: #ffffff; padding: 5px 8px;">
+                      <option value="semua_bidang" selected>Semua Bidang Usaha (Semua Kategori)</option>
+                      <option value="perusahaan">Perusahaan, Korporasi & Industri (PT / CV)</option>
+                      <option value="konstruksi">Konstruksi, Arsitektur & Properti</option>
+                      <option value="jasa">Jasa Bisnis, Legal & Profesional</option>
+                      <option value="it">Teknologi, IT & Telekomunikasi</option>
+                      <option value="pendidikan">Pendidikan & Edukasi</option>
+                      <option value="kesehatan">Kesehatan, Medis & Farmasi</option>
+                      <option value="pemerintah">Instansi Pemerintah & Layanan Publik</option>
+                      <option value="kuliner">Kuliner, Makanan & Minuman</option>
+                      <option value="retail">Perdagangan, Retail & Toko</option>
+                      <option value="otomotif">Otomotif & Transportasi</option>
+                      <option value="akomodasi">Akomodasi, Pariwisata & Hiburan</option>
+                      <option value="kecantikan">Kecantikan, Kebugaran & Relaksasi</option>
+                      <option value="keuangan">Lembaga Keuangan & Asuransi</option>
+                      <option value="pertanian">Pertanian, Peternakan & Agribisnis</option>
+                      <option value="ibadah">Tempat Ibadah & Yayasan Sosial</option>
+                      <option value="lainnya">Bidang Lainnya & Usaha Umum</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style="font-size: 0.64rem; font-weight: 700; color: #334155; margin-bottom: 2px; display: block;">
+                      Spesifikasi Jenis:
+                    </label>
+                    <select id="target-category-select" class="form-select" style="font-size: 0.74rem; padding: 5px 8px;">
+                      <option value="all" selected>Semua Jenis Bisnis & Instansi</option>
+                      <option value="semua_perusahaan">Semua Kantor Perusahaan & PT/CV</option>
+                      <option value="kantor_pt">Kantor PT (Perseroan Terbatas)</option>
+                      <option value="kantor_cv">Kantor CV (Persekutuan Komanditer)</option>
+                      <option value="pabrik_manufaktur">Pabrik, Manufaktur & Industri</option>
+                      <option value="distributor_supplier">Distributor, Supplier & Agen Grosir</option>
+                      <option value="pergudangan_logistik">Pergudangan (Warehouse) & Depo</option>
+                      <option value="holding_corporate">Kantor Pusat / Holding Corporate</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- LANGKAH 3: KONTROL EKSTRAKSI TERPADU & MINIMALIS -->
+            <div style="font-size: 0.68rem; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
+              Langkah 3 · Ekstraksi Leads
+            </div>
+
+              <!-- KONTROL EKSTRAKSI TERPADU & MINIMALIS (cliento Unified Engine) -->
+              <div class="scraper-engine-box" style="background: #ffffff; border: 1.5px solid #2563eb; border-radius: 12px; padding: 14px; box-shadow: 0 4px 14px rgba(37,99,235,0.08); margin-top: 10px;">
+                
+                <!-- Target Header Badge -->
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px;">
+                  <div style="font-size: 0.64rem; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">
+                    <i class="fa-solid fa-bullseye"></i> Sasaran Pencarian Aktif:
+                  </div>
+                  <div id="summary-active-target" style="font-size: 0.82rem; font-weight: 700; color: #0f172a; line-height: 1.3;">
+                    Semua Bidang Usaha di Kedungsari, Magelang Utara
+                  </div>
+                </div>
+
+                <!-- Pilihan Mesin Pengambilan (4 Radio Tiles Minimalis) -->
+                <label style="font-size: 0.70rem; font-weight: 700; color: #334155; margin-bottom: 6px; display: block;">
+                  Pilih Mesin Pengambilan:
+                </label>
+                <div class="engine-selector-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px;">
+                  
+                  <label class="engine-tile active" id="tile-engine-cloud" style="display: flex; align-items: center; gap: 8px; padding: 8px; border: 1.5px solid #2563eb; background: #eff6ff; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
+                    <input type="radio" name="scrape_engine" value="cloud" checked style="accent-color: #2563eb;">
+                    <div>
+                      <div style="font-size: 0.74rem; font-weight: 700; color: #1e40af;">⚡ Cloud API</div>
+                      <div style="font-size: 0.62rem; color: #64748b;">Estafet Apify/Outscraper</div>
+                    </div>
+                  </label>
+
+                  <label class="engine-tile" id="tile-engine-local" style="display: flex; align-items: center; gap: 8px; padding: 8px; border: 1.5px solid #e2e8f0; background: #ffffff; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
+                    <input type="radio" name="scrape_engine" value="local" style="accent-color: #059669;">
+                    <div>
+                      <div style="font-size: 0.74rem; font-weight: 700; color: #334155;">💻 Mesin Lokal</div>
+                      <div style="font-size: 0.62rem; color: #64748b;">Laptop + Popup 45s</div>
+                    </div>
+                  </label>
+
+                  <label class="engine-tile" id="tile-engine-dorking" style="display: flex; align-items: center; gap: 8px; padding: 8px; border: 1.5px solid #e2e8f0; background: #ffffff; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
+                    <input type="radio" name="scrape_engine" value="dorking" style="accent-color: #7c3aed;">
+                    <div>
+                      <div style="font-size: 0.74rem; font-weight: 700; color: #334155;">🎯 Sosmed Hunter</div>
+                      <div style="font-size: 0.62rem; color: #64748b;">Nomor WA dari IG/FB/TikTok</div>
+                    </div>
+                  </label>
+
+                  <label class="engine-tile" id="tile-engine-extension" style="display: flex; align-items: center; gap: 8px; padding: 8px; border: 1.5px solid #e2e8f0; background: #ffffff; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
+                    <input type="radio" name="scrape_engine" value="extension" style="accent-color: #0f172a;">
+                    <div>
+                      <div style="font-size: 0.74rem; font-weight: 700; color: #334155;">🌐 Ekstensi Maps</div>
+                      <div style="font-size: 0.62rem; color: #64748b;">Buka Maps &amp; Impor</div>
+                    </div>
+                  </label>
+                </div>
+
+                <!-- Pengaturan Batas Jumlah Data -->
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; background: #f8fafc; padding: 6px 10px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                  <span style="font-size: 0.70rem; font-weight: 600; color: #475569;">Batas Target Data:</span>
+                  <select id="scraper-batch-limit" class="form-select" style="width: auto; font-size: 0.72rem; padding: 4px 8px; font-weight: 600;">
+                    <option value="15">15 Tempat</option>
+                    <option value="25" selected>25 Tempat</option>
+                    <option value="50">50 Tempat</option>
+                    <option value="100">100 Tempat (Maksimal)</option>
+                  </select>
+                </div>
+
+                <!-- SATU TOMBOL UTAMA BESAR & POWERFUL -->
+                <button type="button" class="btn btn-primary btn-block" id="btn-main-execute-scrape" style="padding: 12px; font-size: 0.88rem; font-weight: 700; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: none; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; color: #ffffff; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3); cursor: pointer; transition: transform 0.1s;">
+                  <i class="fa-solid fa-bolt-lightning" style="font-size: 1rem; color: #fde047;"></i>
+                  <span id="main-execute-btn-label">Mulai Cari &amp; Ambil Data Leads</span>
+                </button>
+
+                <!-- Hidden compatibility triggers for existing tests and programmatic shortcuts -->
+                <button type="button" id="btn-execute-scrape" style="display:none;"></button>
+                <button type="button" id="btn-sapu-bersih" style="display:none;"></button>
+                <button type="button" id="btn-cloud-waterfall-scrape" style="display:none;"></button>
+                <button type="button" id="btn-local-headless-scrape" style="display:none;"></button>
+                <button type="button" id="btn-dorking-wa-hunt" style="display:none;"></button>
+
+                <!-- Live Status & Progress Box -->
+                <div id="engine-live-status-box" style="display: none; margin-top: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; font-size: 0.74rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <strong id="engine-status-title" style="color: #1e293b;">Memproses...</strong>
+                    <span id="engine-status-badge" class="badge badge-blue">Running</span>
+                  </div>
+                  <div id="engine-status-msg" style="color: #64748b; font-size: 0.7rem; line-height: 1.4;">Menginisialisasi mesin...</div>
+                  <div id="engine-progress-bar-wrap" style="background: #e2e8f0; border-radius: 4px; height: 6px; overflow: hidden; margin-top: 6px; display: none;">
+                    <div id="engine-progress-bar" style="height: 100%; background: #059669; width: 0%; transition: width 0.3s;"></div>
+                  </div>
+                </div>
+
+                <!-- Bagian Ekstensi & Impor JSON (Hanya muncul jika memilih opsi Ekstensi) -->
+                <div id="extension-manual-box" style="display: none; margin-top: 12px; padding: 10px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 0.70rem; font-weight: 700; color: #334155;">Alur Ekstensi Google Maps</span>
+                    <a href="javascript:void(0)" id="btn-scrape-gmaps-auto" style="font-size: 0.68rem; color: #2563eb; text-decoration: none; font-weight: 600;">
+                      <i class="fa-solid fa-arrow-up-right-from-square"></i> Buka Maps
                     </a>
                   </div>
-                </div>
-
-                <!-- KARTU MODE B: EKSPEDISI WILAYAH (SAPU BERSIH SE-KOTA) -->
-                <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px;">
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                    <span style="font-size: 0.68rem; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">Mode B · Seluruh Kabupaten / Kota</span>
-                    <span style="font-size: 0.62rem; font-weight: 600; background: #e2e8f0; color: #334155; padding: 2px 6px; border-radius: 4px;">Google Maps</span>
-                  </div>
-                  <p style="font-size: 0.7rem; color: #64748b; margin-bottom: 10px; line-height: 1.35;">
-                    Buka Google Maps untuk kabupaten/kota terpilih. Hasil mengikuti pencarian yang ditampilkan Google Maps; seluruh bisnis di wilayah tidak dijamin tercakup.
+                  <p style="font-size: 0.68rem; color: #64748b; margin-bottom: 8px; line-height: 1.35;">
+                    Buka Google Maps, klik <em>Mulai scraping</em> pada ekstensi, unduh rekap JSON, lalu impor file tersebut di bawah ini:
                   </p>
-                  <!-- TOMBOL MODE B TUNGGAL: BUKA PENCARIAN UNTUK VERIFIKASI MANUAL -->
-                  <button type="button" class="btn btn-outline btn-block" id="btn-sapu-bersih" style="padding: 10px; font-size: 0.8rem; font-weight: 700; border: 1.5px solid #2563eb; color: #1e40af; background: #ffffff; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.08); cursor: pointer;" title="Buka pencarian Google Maps untuk kabupaten/kota">
-                    <i class="fa-solid fa-city"></i>
-                    <span>Buka Google Maps Kabupaten / Kota</span>
+                  <label for="public-source-file" style="font-size: 0.68rem; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Pilih File JSON Hasil Ekstensi:</label>
+                  <input id="public-source-file" type="file" accept=".json,application/json" style="display: block; width: 100%; font-size: 0.70rem; margin-bottom: 6px;">
+                  <button type="button" id="btn-import-public-source" class="btn btn-outline btn-sm btn-block" style="padding: 6px; font-size: 0.72rem; font-weight: 600;" disabled>
+                    <i class="fa-solid fa-file-import"></i> Impor &amp; Rekap Data
                   </button>
-                  <div style="text-align: center; margin-top: 6px;">
-                    <a href="javascript:void(0)" id="btn-sapu-bersih-gmaps" style="font-size: 0.68rem; color: #64748b; text-decoration: none;">
-                      <i class="fa-solid fa-database"></i> Jalankan scraping di panel ekstensi Chrome
-                    </a>
-                  </div>
+                  <p id="public-source-status" role="status" style="font-size: 0.66rem; color: #64748b; margin-top: 6px; margin-bottom: 0;"></p>
                 </div>
 
-                <!-- KARTU MODE C: MESIN PENGAMBILAN OTOMATIS (CLOUD API, LOKAL, & DORKING) -->
-                <div style="background: #ffffff; border: 1.5px solid #10b981; border-radius: 10px; padding: 12px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.08);">
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                    <span style="font-size: 0.68rem; font-weight: 700; color: #059669; text-transform: uppercase; letter-spacing: 0.5px;">
-                      <i class="fa-solid fa-bolt-lightning text-amber"></i> Mode Otomatis · Background &amp; Hunter
-                    </span>
-                    <span style="font-size: 0.62rem; font-weight: 600; background: #ecfdf5; color: #047857; padding: 2px 6px; border-radius: 4px; border: 1px solid #a7f3d0;">Multi-Engine</span>
-                  </div>
-                  <p style="font-size: 0.7rem; color: #475569; margin-bottom: 10px; line-height: 1.35;">
-                    Pengambilan data langsung di belakang layar tanpa perlu membuka ekstensi browser. Pilih salah satu mesin berikut:
-                  </p>
-
-                  <div style="display: flex; flex-direction: column; gap: 8px;">
-                    <!-- Tombol 1: Cloud API Waterfall -->
-                    <button type="button" class="btn btn-block" id="btn-cloud-waterfall-scrape" style="padding: 9px; font-size: 0.8rem; font-weight: 700; background: linear-gradient(135deg, #2563eb, #1e40af); border: none; border-radius: 8px; color: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
-                      <span style="display: flex; align-items: center; gap: 6px;">
-                        <i class="fa-solid fa-cloud-arrow-down"></i>
-                        <span>Cloud API (Estafet)</span>
-                      </span>
-                      <span style="font-size: 0.62rem; background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">Apify ➔ Outscraper ➔ SerpApi</span>
-                    </button>
-
-                    <!-- Tombol 2: Mesin Lokal Laptop -->
-                    <button type="button" class="btn btn-block" id="btn-local-headless-scrape" style="padding: 9px; font-size: 0.8rem; font-weight: 700; background: linear-gradient(135deg, #059669, #047857); border: none; border-radius: 8px; color: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
-                      <span style="display: flex; align-items: center; gap: 6px;">
-                        <i class="fa-solid fa-laptop-code"></i>
-                        <span>Mesin Lokal (Laptop Sendiri)</span>
-                      </span>
-                      <span style="font-size: 0.62rem; background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">Auto-Save + Popup 45s</span>
-                    </button>
-
-                    <!-- Tombol 3: Sosmed WA Hunter Dorking -->
-                    <button type="button" class="btn btn-block" id="btn-dorking-wa-hunt" style="padding: 9px; font-size: 0.8rem; font-weight: 700; background: linear-gradient(135deg, #7c3aed, #6d28d9); border: none; border-radius: 8px; color: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
-                      <span style="display: flex; align-items: center; gap: 6px;">
-                        <i class="fa-brands fa-whatsapp"></i>
-                        <span>Buru Nomor WA Sosmed</span>
-                      </span>
-                      <span style="font-size: 0.62rem; background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">Instagram / FB / TikTok / Web</span>
-                    </button>
-                  </div>
-
-                  <!-- Live Progress / Status Box for Background Engines -->
-                  <div id="engine-live-status-box" style="display: none; margin-top: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; font-size: 0.74rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                      <strong id="engine-status-title" style="color: #1e293b;">Memproses...</strong>
-                      <span id="engine-status-badge" class="badge badge-blue">Running</span>
-                    </div>
-                    <div id="engine-status-msg" style="color: #64748b; font-size: 0.7rem; line-height: 1.4;">Menginisialisasi mesin...</div>
-                    <div id="engine-progress-bar-wrap" style="background: #e2e8f0; border-radius: 4px; height: 6px; overflow: hidden; margin-top: 6px; display: none;">
-                      <div id="engine-progress-bar" style="height: 100%; background: #059669; width: 0%; transition: width 0.3s;"></div>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
-              <details open style="margin-top:12px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
-                <summary style="cursor:pointer;font-weight:700;">Impor hasil Google Maps</summary>
-                <p style="font-size:0.75rem;margin-top:8px;">Setelah scraping selesai di Chrome, klik Unduh JSON pada ekstensi. Pilih file itu di sini dan klik Impor &amp; rekap. Hasil disimpan ke riwayat dan bisa diarsipkan atau diekspor ke Excel.</p>
-                <p style="font-size:0.75rem;"><a href="extension/README.md" target="_blank" rel="noopener">Panduan pasang ekstensi Chrome</a> &middot; <a href="OPEN_SOURCES.md" target="_blank" rel="noopener">Panduan impor Google Maps</a>.</p>
-                <label for="public-source-file">File JSON (maks. 2 MB, 500 record)</label>
-                <input id="public-source-file" type="file" accept=".json,application/json" style="display:block;margin:8px 0;max-width:100%;">
-                <button type="button" id="btn-import-public-source" class="btn btn-outline btn-sm" disabled>Impor &amp; rekap Google Maps</button>
-                <p id="public-source-status" role="status" style="font-size:0.72rem;margin-top:8px;">Data yang terbaca dari Google Maps: nama, alamat, kategori, telepon, website, jam buka, rating, dan jumlah ulasan. Kolom yang tidak tersedia tetap kosong.</p>
-              </details>
-
-              <!-- Progress Bar Deteksi Wilayah -->
-              <div id="sapu-bersih-progress" style="display: none; margin-top: 10px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 10px; font-size: 0.74rem; color: #166534;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <strong style="display: flex; align-items: center; gap: 6px; font-size: 0.74rem;">
-                    <span class="spinner-border-sm" style="display: inline-block; width: 10px; height: 10px; border: 2px solid #86efac; border-top-color: #16a34a; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
-                    Proses Deteksi Wilayah Berjalan...
-                  </strong>
-                  <span id="sapu-progress-pct" style="font-weight: 700; color: #16a34a;">0%</span>
-                </div>
-                <div style="background: #dcfce7; border-radius: 4px; height: 6px; overflow: hidden;">
-                  <div id="sapu-progress-bar" style="height: 100%; background: #16a34a; border-radius: 4px; width: 0%; transition: width 0.3s;"></div>
-                </div>
-                <div id="sapu-progress-label" style="margin-top: 6px; font-size: 0.70rem; color: #475569;">Memulai proses...</div>
               </div>
 
             </div>
