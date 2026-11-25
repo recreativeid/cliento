@@ -62,10 +62,25 @@ assertEq(dorkingDetectPlatform('https://tiktok.com/@kulinermgl'), 'tiktok', 'Det
 assertEq(dorkingDetectPlatform('https://linktr.ee/kulinermgl'), 'linktree', 'Detect Linktree');
 assertEq(dorkingDetectPlatform('https://kulinermagelang.com'), 'website', 'Detect Website');
 
-// 5. Waterfall attempt_log behavior when all cloud keys are unset
+// 5. SerpApi Dorking JSON Parser Test
+$sampleSerpJson = json_encode([
+    'organic_results' => [
+        [
+            'title' => 'Bakso Enak (@bakso.mgl) • Instagram photos and videos',
+            'link' => 'https://www.instagram.com/bakso.mgl/',
+            'snippet' => 'Order antar Magelang hubungi wa.me/6281399001122 sekarang!'
+        ]
+    ]
+]);
+$parsedSerp = dorkingParseSerpApiResults($sampleSerpJson);
+assertEq(count($parsedSerp), 1, 'Parse SerpApi JSON organic result');
+assertEq($parsedSerp[0]['url'], 'https://www.instagram.com/bakso.mgl/', 'Extract SerpApi target URL');
+assertEq(dorkingExtractPhones($parsedSerp[0]['snippet']), ['081399001122'], 'Extract WA number from SerpApi snippet');
+
+// 6. Waterfall attempt_log behavior when all cloud keys are unset
 function googlePlacesIsConfigured() { return false; }
 $wfRes = cloudScrapeWaterfall('cafe di Magelang', 10);
 assertEq($wfRes['success'], false, 'Waterfall fails cleanly when zero keys are set');
 assertEq(count($wfRes['attempt_log']), 4, 'Attempt log reports status of all 4 cloud/places providers');
 
-echo "All Multi-Engine Scraper, DDG DOMParser & Waterfall AttemptLog unit tests PASSED successfully!\n";
+echo "All Multi-Engine Scraper, DDG DOMParser, SerpApi Parser & Waterfall AttemptLog unit tests PASSED successfully!\n";

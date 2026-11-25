@@ -31,4 +31,5 @@ data/cache/
 data/harvest_*.json
 data/places_*.jsonl
 data/latest_chrome_import.json
+storage/
 

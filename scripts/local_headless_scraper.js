@@ -61,11 +61,42 @@ function updateProgress(status, currentCount = collectedPlaces.length, captchaPr
     }
 }
 
+function cleanTextGlyphs(value) {
+    return String(value || '')
+        .replace(/[\uE000-\uF8FF]/g, ' ')
+        .replace(/\r?\n+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 function savePlaceIncrementally(place) {
-    if (!place || !place.name) return;
-    // Anti duplicate in memory
-    const key = (place.google_maps_url || place.name).toLowerCase();
-    if (collectedPlaces.some(p => (p.google_maps_url || p.name).toLowerCase() === key)) return;
+    if (!place || !place.name) return false;
+    place.name = cleanTextGlyphs(place.name);
+    place.address = cleanTextGlyphs(place.address);
+    place.phone = cleanTextGlyphs(place.phone);
+    place.opening_hours = cleanTextGlyphs(place.opening_hours);
+
+    // Anti-duplicate across both place URL identity and normalized name+phone
+    const normName = place.name.toLowerCase();
+    const normPhone = (place.phone || '').replace(/[^\d]/g, '');
+    const normAddr = (place.address || '').toLowerCase().slice(0, 35);
+    const existingIdx = collectedPlaces.findIndex(p => {
+        if (p.name.toLowerCase() !== normName) return false;
+        const pPhone = (p.phone || '').replace(/[^\d]/g, '');
+        if (normPhone && pPhone) return pPhone === normPhone;
+        return (p.address || '').toLowerCase().slice(0, 35) === normAddr;
+    });
+
+    if (existingIdx !== -1) {
+        // Enrich missing fields (like coordinates or permanent /maps/place/ URL) without duplicating
+        const cur = collectedPlaces[existingIdx];
+        if (!cur.lat && place.lat) cur.lat = place.lat;
+        if (!cur.lng && place.lng) cur.lng = place.lng;
+        if (place.google_maps_url && place.google_maps_url.includes('/maps/place/')) {
+            cur.google_maps_url = place.google_maps_url;
+        }
+        return false;
+    }
 
     collectedPlaces.push(place);
     console.log(`[Auto-Save] [${collectedPlaces.length}/${limit}] ${place.name} | Telp: ${place.phone || '-'} (Tersimpan ke database lokal)`);
@@ -81,6 +112,7 @@ function savePlaceIncrementally(place) {
             places: collectedPlaces
         }, null, 2), 'utf-8');
     } catch (_) {}
+    return true;
 }
 
 function triggerAudioAlert() {
@@ -165,7 +197,8 @@ async function main() {
         '--no-default-browser-check',
         '--disable-blink-features=AutomationControlled',
         '--lang=id-ID',
-        startHeadless ? '--window-position=-2000,-2000' : '--window-size=1200,800',
+        '--window-size=1366,850',
+        startHeadless ? '--window-position=-2000,-2000' : '--window-position=80,60',
         `https://www.google.com/maps/search/${encodeURIComponent(query)}?hl=id`
     ];
 
@@ -331,22 +364,57 @@ async function main() {
                 break;
             }
 
-            // Click matching card in DOM to load its genuine detail pane
-            await send('Runtime.evaluate', {
+            // Capture current visible heading before clicking so we detect transition cleanly
+            const prevStateRes = await send('Runtime.evaluate', {
+                returnByValue: true,
+                expression: `(() => {
+                    const h1 = Array.from(document.querySelectorAll('h1.DUwDvf, h1.fontHeadlineLarge')).find(el => el.getClientRects().length > 0);
+                    return { name: h1 ? (h1.innerText || '').trim() : '', href: window.location.href };
+                })()`
+            });
+            const prevName = prevStateRes.result?.value?.name || '';
+            const prevHref = prevStateRes.result?.value?.href || '';
+
+            // Click matching card in DOM using canonical Place ID key or href
+            const clickedRes = await send('Runtime.evaluate', {
                 returnByValue: true,
                 expression: `(() => {
                     const links = Array.from(document.querySelectorAll('[role="feed"] a[href*="/maps/place/"]'));
-                    const target = links.find(a => a.href === ${JSON.stringify(cand.href)});
+                    const target = links.find(a => {
+                        const h = a.href || '';
+                        return h === ${JSON.stringify(cand.href)} || h.includes(${JSON.stringify(cand.key)});
+                    });
                     if (target) {
-                        target.scrollIntoView({ block: 'nearest' });
+                        target.scrollIntoView({ block: 'center' });
                         target.click();
                         return true;
                     }
                     return false;
                 })()`
             });
+            if (!clickedRes.result?.value) continue;
 
-            await sleep(1400);
+            // Poll up to 4.2s for detail pane AND URL to actually switch to the clicked card
+            let transitioned = false;
+            for (let t = 0; t < 17; t++) {
+                await sleep(250);
+                const chk = await send('Runtime.evaluate', {
+                    returnByValue: true,
+                    expression: `(() => {
+                        const h1 = Array.from(document.querySelectorAll('h1.DUwDvf, h1.fontHeadlineLarge')).find(el => el.getClientRects().length > 0);
+                        return { name: h1 ? (h1.innerText || '').trim() : '', href: window.location.href };
+                    })()`
+                });
+                const curName = chk.result?.value?.name || '';
+                const curHref = chk.result?.value?.href || '';
+                if (curName && curName !== prevName && curHref !== prevHref && curHref.includes('/maps/place/')) {
+                    transitioned = true;
+                    break;
+                }
+            }
+            if (!transitioned) {
+                await sleep(400);
+            }
 
             // Read ONLY observed fields from the active [role="main"] detail pane
             const profileRes = await send('Runtime.evaluate', {

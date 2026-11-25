@@ -9,6 +9,9 @@
  * 4. Google Places API (New) (Optional fallback if configured)
  */
 
+if (!defined('SKIP_DB_CONNECT')) {
+    define('SKIP_DB_CONNECT', true);
+}
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/google_places.php';
 

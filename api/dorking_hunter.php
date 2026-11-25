@@ -11,6 +11,9 @@
  * Sumber disimpan terpisah dari Google Maps dengan label platform yang jelas.
  */
 
+if (!defined('SKIP_DB_CONNECT')) {
+    define('SKIP_DB_CONNECT', true);
+}
 require_once __DIR__ . '/../config.php';
 
 function dorkingExtractPhones($text) {
@@ -175,11 +178,24 @@ function dorkingQueryDuckDuckGo($dorkQuery) {
     curl_close($ch);
 
     if ($html === false || $code < 200 || $code >= 300 || empty($html)) {
+        $isNetworkBlocked = ($code === 0) && (
+            stripos($curlErr, 'ssl') !== false ||
+            stripos($curlErr, 'tls') !== false ||
+            stripos($curlErr, 'timed out') !== false ||
+            stripos($curlErr, 'resolve') !== false ||
+            stripos($curlErr, 'reset') !== false ||
+            stripos($curlErr, 'connect') !== false
+        );
+        $friendlyErr = $isNetworkBlocked
+            ? 'DuckDuckGo diblokir ISP/TLS tanpa VPN (' . ($curlErr ?: 'Timeout') . ') — isi SERPAPI_API_KEY di config.local.php atau aktifkan VPN'
+            : ($curlErr ?: ('DuckDuckGo HTTP ' . $code));
+
         return [
             'ok' => false,
             'http_code' => $code,
-            'blocked' => ($code === 403 || $code === 429 || $code === 202),
-            'error' => $curlErr ?: ('DuckDuckGo HTTP ' . $code),
+            'blocked' => ($code === 403 || $code === 429 || $code === 202 || $isNetworkBlocked),
+            'network_blocked' => $isNetworkBlocked,
+            'error' => $friendlyErr,
             'results' => []
         ];
     }
@@ -192,9 +208,144 @@ function dorkingQueryDuckDuckGo($dorkQuery) {
         'ok' => !$isChallenge,
         'http_code' => $code,
         'blocked' => $isChallenge,
+        'network_blocked' => false,
         'error' => $isChallenge ? 'DuckDuckGo meminta verifikasi anti-bot (anomaly challenge)' : '',
         'results' => $results
     ];
+}
+
+/**
+ * Parse SerpApi Google Search JSON payload into standard dorking result items
+ */
+function dorkingParseSerpApiResults($jsonBody) {
+    $data = is_array($jsonBody) ? $jsonBody : json_decode((string)$jsonBody, true);
+    if (!is_array($data) || empty($data['organic_results'])) {
+        return [];
+    }
+
+    $results = [];
+    foreach ($data['organic_results'] as $row) {
+        $url = trim((string)($row['link'] ?? ''));
+        if (empty($url)) continue;
+        $results[] = [
+            'title' => preg_replace('/\s+/', ' ', trim((string)($row['title'] ?? 'Profil Bisnis'))),
+            'url' => $url,
+            'snippet' => preg_replace('/\s+/', ' ', trim((string)($row['snippet'] ?? '')))
+        ];
+    }
+    return $results;
+}
+
+/**
+ * Run Google Dorking cleanly via SerpApi (works in Indonesia without VPN)
+ */
+function dorkingQuerySerpApi($dorkQuery) {
+    if (!defined('SERPAPI_API_KEY') || empty(SERPAPI_API_KEY) || !function_exists('curl_init')) {
+        return ['ok' => false, 'configured' => false, 'http_code' => 0, 'blocked' => false, 'network_blocked' => false, 'error' => '', 'results' => []];
+    }
+
+    $endpoint = 'https://serpapi.com/search.json?' . http_build_query([
+        'engine' => 'google',
+        'q' => $dorkQuery,
+        'gl' => 'id',
+        'hl' => 'id',
+        'num' => 10,
+        'api_key' => SERPAPI_API_KEY
+    ]);
+
+    $ch = curl_init($endpoint);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_SSL_VERIFYPEER => true
+    ]);
+    $raw = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlErr = curl_error($ch);
+    curl_close($ch);
+
+    if ($raw === false || $code < 200 || $code >= 300 || empty($raw)) {
+        $errData = is_string($raw) ? json_decode($raw, true) : null;
+        $apiErr = is_array($errData) && !empty($errData['error']) ? $errData['error'] : ($curlErr ?: ('SerpApi HTTP ' . $code));
+        return [
+            'ok' => false,
+            'configured' => true,
+            'http_code' => $code,
+            'blocked' => ($code === 429 || $code === 401),
+            'network_blocked' => false,
+            'error' => $apiErr,
+            'results' => []
+        ];
+    }
+
+    return [
+        'ok' => true,
+        'configured' => true,
+        'http_code' => $code,
+        'blocked' => false,
+        'network_blocked' => false,
+        'error' => '',
+        'results' => dorkingParseSerpApiResults($raw)
+    ];
+}
+
+/**
+ * Check real reachability of the Sosmed Dorking engine for live diagnostics
+ */
+function dorkingCheckAvailability($useCache = true) {
+    if (defined('SERPAPI_API_KEY') && !empty(SERPAPI_API_KEY) && function_exists('curl_init')) {
+        return [
+            'active' => true,
+            'status' => 'active',
+            'engine' => 'SerpApi Google Dorking',
+            'message' => 'Aktif — SerpApi Google Dorking (IG, FB, TikTok & Website) siap tanpa VPN'
+        ];
+    }
+
+    if (!function_exists('curl_init')) {
+        return [
+            'active' => false,
+            'status' => 'off',
+            'engine' => 'none',
+            'message' => 'Mati — Ekstensi PHP cURL tidak aktif'
+        ];
+    }
+
+    $cacheFile = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'cliento_ddg_probe.json';
+    if ($useCache && @file_exists($cacheFile)) {
+        $cached = json_decode((string)@file_get_contents($cacheFile), true);
+        if (is_array($cached) && isset($cached['checked_at']) && (time() - (int)$cached['checked_at']) < 60 && isset($cached['active'])) {
+            return $cached;
+        }
+    }
+
+    $ch = curl_init('https://html.duckduckgo.com/');
+    curl_setopt_array($ch, [
+        CURLOPT_NOBODY => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 2,
+        CURLOPT_TIMEOUT => 3,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_HTTPHEADER => ['User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36']
+    ]);
+    curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlErr = curl_error($ch);
+    curl_close($ch);
+
+    $reachable = ($code >= 200 && $code < 500);
+    $result = [
+        'active' => $reachable,
+        'status' => $reachable ? 'active' : 'off',
+        'engine' => 'DuckDuckGo HTML',
+        'message' => $reachable
+            ? 'Aktif — DuckDuckGo HTML cURL siap buru WA di IG, FB, TikTok & Website'
+            : ('Mati (Blokir ISP/TLS) — duckduckgo.com gagal dijangkau tanpa VPN (' . ($curlErr ?: 'HTTP ' . $code) . '); isi SERPAPI_API_KEY atau aktifkan VPN'),
+        'checked_at' => time()
+    ];
+    @file_put_contents($cacheFile, json_encode($result));
+    return $result;
 }
 
 /**
@@ -221,10 +372,15 @@ function dorkingHuntWhatsAppLeads($category, $location, $targetPlatform = 'all',
         $dorks[] = ['platform' => 'website', 'query' => '"' . $category . '" "' . $location . '" ("wa.me/62" OR "wa.me/08" OR "api.whatsapp.com")'];
     }
 
+    $useSerpApi = (defined('SERPAPI_API_KEY') && !empty(SERPAPI_API_KEY));
+    $engineLabel = $useSerpApi ? 'SerpApi Google Dorking' : 'DuckDuckGo HTML';
+    $sourceKey = $useSerpApi ? 'serpapi_dorking' : 'duckduckgo_dorking';
+
     $leads = [];
     $seenPhones = [];
     $rawHits = 0;
     $blockedCount = 0;
+    $queriesRun = 0;
     $lastHttp = 0;
     $lastErr = '';
 
@@ -232,9 +388,10 @@ function dorkingHuntWhatsAppLeads($category, $location, $targetPlatform = 'all',
         if (count($leads) >= $maxResults) break;
 
         // Polite delay between queries (1.2s) to preserve IP reputation
-        if ($idx > 0) usleep(1200000);
+        if ($idx > 0) usleep($useSerpApi ? 300000 : 1200000);
 
-        $resp = dorkingQueryDuckDuckGo($dork['query']);
+        $queriesRun++;
+        $resp = $useSerpApi ? dorkingQuerySerpApi($dork['query']) : dorkingQueryDuckDuckGo($dork['query']);
         $lastHttp = $resp['http_code'];
         if (!empty($resp['blocked'])) $blockedCount++;
         if (!empty($resp['error'])) $lastErr = $resp['error'];
@@ -266,7 +423,7 @@ function dorkingHuntWhatsAppLeads($category, $location, $targetPlatform = 'all',
                     'opening_hours' => 'Online / Kontak Langsung',
                     'rating' => 0,
                     'reviews_count' => 0,
-                    'source' => 'duckduckgo_dorking',
+                    'source' => $sourceKey,
                     'source_type' => 'google_dorking',
                     'source_name' => 'Dorking ' . ucfirst($platform),
                     'platform' => $platform,
@@ -276,6 +433,11 @@ function dorkingHuntWhatsAppLeads($category, $location, $targetPlatform = 'all',
 
                 if (count($leads) >= $maxResults) break 2;
             }
+        }
+
+        // Fail fast if network/TLS is blocked by ISP instead of sleeping across remaining queries
+        if (!empty($resp['network_blocked'])) {
+            break;
         }
     }
 
@@ -289,9 +451,9 @@ function dorkingHuntWhatsAppLeads($category, $location, $targetPlatform = 'all',
         'leads' => $leads,
         'total' => count($leads),
         'diagnostics' => [
-            'engine' => 'DuckDuckGo HTML',
+            'engine' => $engineLabel,
             'active' => $engineActive,
-            'queries_run' => count($dorks),
+            'queries_run' => $queriesRun,
             'raw_search_hits' => $rawHits,
             'blocked_or_captcha' => $blockedCount > 0,
             'last_http_code' => $lastHttp,

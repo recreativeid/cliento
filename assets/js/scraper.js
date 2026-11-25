@@ -4151,26 +4151,27 @@ const ScraperClient = {
                 const dd = dorkData.diagnostics || {};
                 const leadsNorm = this.normalizeDorkingLeads(dorkData.leads || [], category, location);
 
+                const dorkEngine = dd.engine || 'DuckDuckGo';
                 if (dd.blocked_or_captcha) {
-                    stateRows.dorking.stateLabel = 'DIBLOKIR DDG';
+                    stateRows.dorking.stateLabel = dorkEngine.includes('SerpApi') ? 'DIBLOKIR SERPAPI' : 'DIBLOKIR ISP/DDG';
                     stateRows.dorking.tone = 'off';
-                    stateRows.dorking.detail = dd.error || 'DuckDuckGo meminta verifikasi anti-bot';
+                    stateRows.dorking.detail = dd.error || `${dorkEngine} tidak dapat dijangkau tanpa VPN / SerpApi Key`;
                 } else if (leadsNorm.length > 0) {
                     stateRows.dorking.stateLabel = `AKTIF (${leadsNorm.length})`;
                     stateRows.dorking.tone = 'active';
-                    stateRows.dorking.detail = `Ditemukan ${leadsNorm.length} kontak WA asli dari ${dd.raw_search_hits || 0} hasil DuckDuckGo (IG/FB/TikTok/Web).`;
+                    stateRows.dorking.detail = `Ditemukan ${leadsNorm.length} kontak WA asli dari ${dd.raw_search_hits || 0} hasil ${dorkEngine} (IG/FB/TikTok/Web).`;
                 } else if (dd.active) {
                     stateRows.dorking.stateLabel = 'AKTIF (0 COCOK)';
                     stateRows.dorking.tone = 'warn';
-                    stateRows.dorking.detail = `DuckDuckGo merespons (HTTP ${dd.last_http_code || 200}, ${dd.raw_search_hits || 0} hasil), tapi belum ada nomor 08/wa.me untuk kata kunci ini.`;
+                    stateRows.dorking.detail = `${dorkEngine} merespons (HTTP ${dd.last_http_code || 200}, ${dd.raw_search_hits || 0} hasil), tapi belum ada nomor 08/wa.me untuk kata kunci ini.`;
                 } else {
                     stateRows.dorking.stateLabel = 'MATI';
                     stateRows.dorking.tone = 'off';
-                    stateRows.dorking.detail = dd.error || `Gagal menghubungi DuckDuckGo (HTTP ${dd.last_http_code || 0})`;
+                    stateRows.dorking.detail = dd.error || `Gagal menghubungi ${dorkEngine} (HTTP ${dd.last_http_code || 0})`;
                 }
                 syncMatrix();
 
-                return { leads: leadsNorm, label: 'DuckDuckGo Sosmed Hunter', note: stateRows.dorking.detail };
+                return { leads: leadsNorm, label: dorkEngine, note: stateRows.dorking.detail };
             } catch (err) {
                 stateRows.dorking.stateLabel = 'ERROR';
                 stateRows.dorking.tone = 'off';

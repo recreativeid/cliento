@@ -4,16 +4,25 @@
  * Browser collection starts in the Chrome extension. JSON imports are
  * authenticated and persisted through source_import.php.
  */
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$rawInput = file_get_contents('php://input');
+$jsonInput = !empty($rawInput) ? json_decode($rawInput, true) : [];
+$action = $_GET['action'] ?? ($jsonInput['action'] ?? ($_POST['action'] ?? 'preview'));
+
+$statelessActions = [
+    'engine_diagnostics', 'cloud_status', 'cloud_scrape',
+    'dork_hunt', 'run_local_scrape', 'local_scrape_status',
+    'google_places_status', 'open_source_catalog', 'suggest'
+];
+if (in_array($action, $statelessActions, true) && !defined('SKIP_DB_CONNECT')) {
+    define('SKIP_DB_CONNECT', true);
+}
+
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/google_places.php';
 require_once __DIR__ . '/open_sources.php';
 require_once __DIR__ . '/cloud_scraper.php';
 require_once __DIR__ . '/dorking_hunter.php';
-
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$rawInput = file_get_contents('php://input');
-$jsonInput = !empty($rawInput) ? json_decode($rawInput, true) : [];
-$action = $_GET['action'] ?? ($jsonInput['action'] ?? ($_POST['action'] ?? 'preview'));
 
 function scraperDetectLocalRuntime() {
     $nodeCandidates = [
@@ -76,7 +85,8 @@ if ($action === 'engine_diagnostics') {
     $runtime = scraperDetectLocalRuntime();
     $hasCloudKey = !empty($cloud['apify']['configured']) || !empty($cloud['outscraper']['configured']) || !empty($cloud['serpapi']['configured']);
     $hasPlacesKey = !empty($cloud['google_places']['configured']);
-    $curlAvailable = function_exists('curl_init');
+    $freshProbe = isset($_GET['fresh']) && $_GET['fresh'] === '1';
+    $dorkStatus = dorkingCheckAvailability(!$freshProbe);
 
     $cloudMissing = [];
     if (empty($cloud['apify']['configured'])) $cloudMissing[] = 'Apify';
@@ -130,11 +140,10 @@ if ($action === 'engine_diagnostics') {
                         : 'Nonaktif — Mesin Lokal Chrome mati di host ini')
             ],
             'dorking' => [
-                'active' => $curlAvailable,
-                'status' => $curlAvailable ? 'active' : 'off',
-                'message' => $curlAvailable
-                    ? 'Aktif — DuckDuckGo HTML cURL siap buru WA di IG, FB, TikTok & Website'
-                    : 'Mati — Ekstensi PHP cURL tidak aktif'
+                'active' => !empty($dorkStatus['active']),
+                'status' => $dorkStatus['status'] ?? 'off',
+                'engine' => $dorkStatus['engine'] ?? 'DuckDuckGo HTML',
+                'message' => $dorkStatus['message'] ?? 'Status Sosmed Dorking tidak diketahui'
             ]
         ]
     ]);
@@ -216,12 +225,16 @@ if ($action === 'run_local_scrape') {
 
     $nodeBinEsc = escapeshellarg($runtime['node_bin']);
     $nodeScript = escapeshellarg(__DIR__ . '/../scripts/local_headless_scraper.js');
+    $logFile = realpath($storageDir) . DIRECTORY_SEPARATOR . 'local_scrape.log';
+    @file_put_contents($logFile, '');
+    $logEsc = escapeshellarg($logFile);
     $cmd = $nodeBinEsc . ' ' . $nodeScript . ' --query=' . escapeshellarg($q) . ' --limit=' . $limit . ' --headless=' . ($headless ? 'true' : 'false');
 
     if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-        pclose(popen('start "" /B ' . $cmd, 'r'));
+        $winCmd = 'start "" /B cmd /c "' . $cmd . ' > ' . $logEsc . ' 2>&1"';
+        pclose(popen($winCmd, 'r'));
     } else {
-        pclose(popen($cmd . ' > /dev/null 2>&1 &', 'r'));
+        pclose(popen($cmd . ' > ' . $logEsc . ' 2>&1 &', 'r'));
     }
 
     jsonResponse([

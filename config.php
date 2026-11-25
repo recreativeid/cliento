@@ -27,32 +27,31 @@ if (!function_exists('str_contains')) {
 
 // Set headers for JSON APIs
 function jsonResponse($data, $status = 200) {
-    http_response_code($status);
-    header('Content-Type: application/json; charset=utf-8');
-    // Dynamic CORS: Only allow same-origin requests (or localhost during development)
-    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-    $allowedOrigins = [
-        'http://127.0.0.1',
-        'http://localhost',
-        'https://127.0.0.1',
-        'https://localhost'
-    ];
-    // Allow any port on localhost for dev
-    $isLocalOrigin = false;
-    foreach ($allowedOrigins as $allowed) {
-        if ($origin === $allowed || strpos($origin, $allowed . ':') === 0) {
-            $isLocalOrigin = true;
-            break;
+    if (!headers_sent()) {
+        http_response_code($status);
+        header('Content-Type: application/json; charset=utf-8');
+        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+        $allowedOrigins = [
+            'http://127.0.0.1',
+            'http://localhost',
+            'https://127.0.0.1',
+            'https://localhost'
+        ];
+        $isLocalOrigin = false;
+        foreach ($allowedOrigins as $allowed) {
+            if ($origin === $allowed || strpos($origin, $allowed . ':') === 0) {
+                $isLocalOrigin = true;
+                break;
+            }
         }
+        if ($isLocalOrigin && !empty($origin)) {
+            header('Access-Control-Allow-Origin: ' . $origin);
+        } else {
+            header('Access-Control-Allow-Origin: ' . (!empty($origin) ? $origin : '*'));
+        }
+        header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
     }
-    if ($isLocalOrigin && !empty($origin)) {
-        header('Access-Control-Allow-Origin: ' . $origin);
-    } else {
-        // In production, set to your actual domain e.g. 'https://cliento.id'
-        header('Access-Control-Allow-Origin: ' . (!empty($origin) ? $origin : '*'));
-    }
-    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
     echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -86,27 +85,29 @@ define('SUPABASE_KEY', $supabaseKey);
 
 $dbConnected = false;
 
-// 1. Supabase Cloud PostgreSQL Connection (Single Source of Truth)
-if (!empty($supabaseHost) && extension_loaded('pdo_pgsql')) {
-    try {
-        $dsn = "pgsql:host={$supabaseHost};port={$supabasePort};dbname={$supabaseDb};sslmode=require";
-        $pdo = new PDO($dsn, $supabaseUser, $supabasePass, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_TIMEOUT => 15
-        ]);
-        $dbConnected = true;
-    } catch (PDOException $e) {
-        error_log("Supabase Cloud connection error: " . $e->getMessage());
+// 1. Supabase Cloud PostgreSQL Connection (Single Source of Truth; skipped for DB-free scraper actions)
+if (!defined('SKIP_DB_CONNECT')) {
+    if (!empty($supabaseHost) && extension_loaded('pdo_pgsql')) {
+        try {
+            $dsn = "pgsql:host={$supabaseHost};port={$supabasePort};dbname={$supabaseDb};sslmode=require";
+            $pdo = new PDO($dsn, $supabaseUser, $supabasePass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_TIMEOUT => 15
+            ]);
+            $dbConnected = true;
+        } catch (PDOException $e) {
+            error_log("Supabase Cloud connection error: " . $e->getMessage());
+        }
     }
-}
 
-if (!$dbConnected) {
-    // If running in development without internet, report clear guidance
-    jsonResponse([
-        'success' => false,
-        'message' => 'Gagal terhubung ke Supabase Cloud PostgreSQL. Pastikan koneksi internet aktif dan kredensial di config.local.php sudah benar.'
-    ], 500);
+    if (!$dbConnected) {
+        // If running in development without internet, report clear guidance
+        jsonResponse([
+            'success' => false,
+            'message' => 'Gagal terhubung ke Supabase Cloud PostgreSQL. Pastikan koneksi internet aktif dan kredensial di config.local.php sudah benar.'
+        ], 500);
+    }
 }
 
 $geminiKey = $localConfig['GEMINI_API_KEY'] ?? (getenv('GEMINI_API_KEY') ?: '');
@@ -129,6 +130,7 @@ define('APP_NAME', 'cliento');
 define('APP_SUBTITLE', 'sales intelligence');
 
 // Auto-check and create users & otps tables if not exist
+if ($dbConnected && isset($pdo)) {
 try {
     $pdo->exec("
     CREATE TABLE IF NOT EXISTS users (
@@ -190,6 +192,7 @@ try {
     }
 } catch (Exception $e) {
     // Ignore if table already exists or locked
+}
 }
 
 /**
