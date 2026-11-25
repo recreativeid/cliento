@@ -15,6 +15,131 @@ $rawInput = file_get_contents('php://input');
 $jsonInput = !empty($rawInput) ? json_decode($rawInput, true) : [];
 $action = $_GET['action'] ?? ($jsonInput['action'] ?? ($_POST['action'] ?? 'preview'));
 
+function scraperDetectLocalRuntime() {
+    $nodeCandidates = [
+        'C:\\Program Files\\nodejs\\node.exe',
+        'C:\\Program Files (x86)\\nodejs\\node.exe',
+        '/usr/local/bin/node',
+        '/usr/bin/node'
+    ];
+    $nodeBin = null;
+    foreach ($nodeCandidates as $cand) {
+        if (@file_exists($cand)) {
+            $nodeBin = $cand;
+            break;
+        }
+    }
+    if (!$nodeBin) {
+        $whichCmd = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'where node 2>nul' : 'command -v node 2>/dev/null';
+        $found = trim((string)@shell_exec($whichCmd));
+        if ($found !== '') {
+            $lines = preg_split('/\r\n|\r|\n/', $found);
+            if (!empty($lines[0]) && @file_exists(trim($lines[0]))) {
+                $nodeBin = trim($lines[0]);
+            }
+        }
+    }
+
+    $chromeCandidates = [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        rtrim((string)getenv('LOCALAPPDATA'), '\\/') . '\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium'
+    ];
+    $chromeBin = null;
+    foreach ($chromeCandidates as $cand) {
+        if ($cand !== '' && @file_exists($cand)) {
+            $chromeBin = $cand;
+            break;
+        }
+    }
+
+    $scriptPath = __DIR__ . '/../scripts/local_headless_scraper.js';
+    $scriptExists = @file_exists($scriptPath);
+
+    return [
+        'node_found' => $nodeBin !== null,
+        'node_bin' => $nodeBin ?: 'node',
+        'chrome_found' => $chromeBin !== null,
+        'chrome_bin' => $chromeBin,
+        'script_found' => $scriptExists,
+        'ready' => ($nodeBin !== null && $chromeBin !== null && $scriptExists)
+    ];
+}
+
+// 0-PRE. Unified Engine Diagnostics (Honest Status for Every Component)
+if ($action === 'engine_diagnostics') {
+    $cloud = cloudScraperGetStatus();
+    $runtime = scraperDetectLocalRuntime();
+    $hasCloudKey = !empty($cloud['apify']['configured']) || !empty($cloud['outscraper']['configured']) || !empty($cloud['serpapi']['configured']);
+    $hasPlacesKey = !empty($cloud['google_places']['configured']);
+    $curlAvailable = function_exists('curl_init');
+
+    $cloudMissing = [];
+    if (empty($cloud['apify']['configured'])) $cloudMissing[] = 'Apify';
+    if (empty($cloud['outscraper']['configured'])) $cloudMissing[] = 'Outscraper';
+    if (empty($cloud['serpapi']['configured'])) $cloudMissing[] = 'SerpApi';
+
+    $localReason = '';
+    if (!$runtime['node_found']) $localReason = 'Node.js tidak ditemukan di PATH server';
+    elseif (!$runtime['chrome_found']) $localReason = 'Google Chrome / Edge tidak ditemukan di mesin host';
+    elseif (!$runtime['script_found']) $localReason = 'scripts/local_headless_scraper.js tidak ditemukan';
+
+    jsonResponse([
+        'success' => true,
+        'environment' => PHP_OS,
+        'engines' => [
+            'cloud_api' => [
+                'active' => $hasCloudKey,
+                'status' => $hasCloudKey ? 'active' : 'off',
+                'providers' => [
+                    'apify' => !empty($cloud['apify']['configured']),
+                    'outscraper' => !empty($cloud['outscraper']['configured']),
+                    'serpapi' => !empty($cloud['serpapi']['configured'])
+                ],
+                'message' => $hasCloudKey
+                    ? 'Aktif (Estafet tersedia' . (!empty($cloudMissing) ? '; kosong: ' . implode(', ', $cloudMissing) : '') . ')'
+                    : 'Mati — Token Apify, Outscraper & SerpApi belum diisi di config.local.php'
+            ],
+            'google_places' => [
+                'active' => $hasPlacesKey,
+                'status' => $hasPlacesKey ? 'active' : 'off',
+                'message' => $hasPlacesKey
+                    ? 'Aktif (GOOGLE_MAPS_API_KEY siap sebagai cadangan)'
+                    : 'Mati — GOOGLE_MAPS_API_KEY belum diisi di config.local.php'
+            ],
+            'local_chrome' => [
+                'active' => $runtime['ready'],
+                'status' => $runtime['ready'] ? 'active' : 'off',
+                'node_found' => $runtime['node_found'],
+                'chrome_found' => $runtime['chrome_found'],
+                'message' => $runtime['ready']
+                    ? 'Aktif — Node.js + Chrome siap (CDP Auto-save + Popup CAPTCHA 45s)'
+                    : ('Mati — ' . $localReason)
+            ],
+            'failover_merge' => [
+                'active' => $runtime['ready'] && ($hasCloudKey || $hasPlacesKey),
+                'status' => ($runtime['ready'] && ($hasCloudKey || $hasPlacesKey)) ? 'active' : ($runtime['ready'] ? 'standby' : 'off'),
+                'message' => ($runtime['ready'] && ($hasCloudKey || $hasPlacesKey))
+                    ? 'Siap — Jika CAPTCHA 45s habis, hasil lokal otomatis digabung dengan estafet Cloud API'
+                    : ($runtime['ready']
+                        ? 'Sebagian — Data awal auto-save aman, tetapi Cloud API / Places kosong jadi estafet 45s tidak bisa lanjut'
+                        : 'Nonaktif — Mesin Lokal Chrome mati di host ini')
+            ],
+            'dorking' => [
+                'active' => $curlAvailable,
+                'status' => $curlAvailable ? 'active' : 'off',
+                'message' => $curlAvailable
+                    ? 'Aktif — DuckDuckGo HTML cURL siap buru WA di IG, FB, TikTok & Website'
+                    : 'Mati — Ekstensi PHP cURL tidak aktif'
+            ]
+        ]
+    ]);
+}
+
 // 0. Cloud Multi-API (Waterfall: Apify -> Outscraper -> SerpApi -> Google Places)
 if ($action === 'cloud_status') {
     jsonResponse([
@@ -27,12 +152,18 @@ if ($action === 'cloud_scrape') {
     $q = trim($_GET['query'] ?? ($jsonInput['query'] ?? ($_POST['query'] ?? '')));
     $limit = (int)($_GET['limit'] ?? ($jsonInput['limit'] ?? ($_POST['limit'] ?? 25)));
     $preferred = trim($_GET['provider'] ?? ($jsonInput['provider'] ?? ($_POST['provider'] ?? '')));
+    $cat = trim($_GET['category'] ?? ($jsonInput['category'] ?? ($_POST['category'] ?? '')));
+    $loc = trim($_GET['location'] ?? ($jsonInput['location'] ?? ($_POST['location'] ?? '')));
     if (empty($q)) {
-        $cat = trim($_GET['category'] ?? ($jsonInput['category'] ?? ($_POST['category'] ?? 'bisnis')));
-        $loc = trim($_GET['location'] ?? ($jsonInput['location'] ?? ($_POST['location'] ?? 'Indonesia')));
-        $q = $cat . ' di ' . $loc;
+        $q = ($cat ?: 'bisnis') . ' di ' . ($loc ?: 'Indonesia');
     }
-    $res = cloudScrapeWaterfall($q, $limit, $preferred ?: null);
+    $meta = [
+        'category' => $cat,
+        'location' => $loc,
+        'lat' => $jsonInput['lat'] ?? ($_GET['lat'] ?? null),
+        'lng' => $jsonInput['lng'] ?? ($_GET['lng'] ?? null)
+    ];
+    $res = cloudScrapeWaterfall($q, $limit, $preferred ?: null, $meta);
     jsonResponse($res, $res['success'] ? 200 : 400);
 }
 
@@ -59,11 +190,36 @@ if ($action === 'run_local_scrape') {
         $q = $cat . ' di ' . $loc;
     }
 
+    $runtime = scraperDetectLocalRuntime();
+    if (!$runtime['ready']) {
+        $why = !$runtime['node_found'] ? 'Node.js tidak ditemukan di komputer server.' : (!$runtime['chrome_found'] ? 'Google Chrome / Edge tidak ditemukan.' : 'Script scraper lokal tidak ditemukan.');
+        jsonResponse([
+            'success' => false,
+            'message' => 'Mesin Lokal Chrome tidak bisa dimulai: ' . $why,
+            'runtime' => $runtime
+        ], 400);
+    }
+
+    // Reset stale progress & failover files BEFORE spawning Node so polling always reads the fresh run!
+    $storageDir = __DIR__ . '/../storage';
+    if (!is_dir($storageDir)) @mkdir($storageDir, 0775, true);
+    @unlink($storageDir . '/local_scrape_failover.json');
+    @file_put_contents($storageDir . '/local_scrape_progress.json', json_encode([
+        'query' => $q,
+        'target_limit' => $limit,
+        'collected_count' => 0,
+        'status' => 'starting_browser',
+        'captcha_prompt' => false,
+        'updated_at' => date('c'),
+        'places' => []
+    ], JSON_PRETTY_PRINT));
+
+    $nodeBinEsc = escapeshellarg($runtime['node_bin']);
     $nodeScript = escapeshellarg(__DIR__ . '/../scripts/local_headless_scraper.js');
-    $cmd = 'node ' . $nodeScript . ' --query=' . escapeshellarg($q) . ' --limit=' . $limit . ' --headless=' . ($headless ? 'true' : 'false');
+    $cmd = $nodeBinEsc . ' ' . $nodeScript . ' --query=' . escapeshellarg($q) . ' --limit=' . $limit . ' --headless=' . ($headless ? 'true' : 'false');
 
     if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-        pclose(popen('start /B ' . $cmd, 'r'));
+        pclose(popen('start "" /B ' . $cmd, 'r'));
     } else {
         pclose(popen($cmd . ' > /dev/null 2>&1 &', 'r'));
     }

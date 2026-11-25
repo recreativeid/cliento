@@ -202,168 +202,250 @@ async function main() {
     console.log(`Membuka pencarian Google Maps untuk: "${query}"...`);
     updateProgress('loading_maps', 0);
 
-    // Main Scraping Loop
+    // Main Scraping Loop: Click real Google Maps cards to extract verified profile details
+    const visitedKeys = new Set();
     let idleRounds = 0;
-    const maxRounds = 60;
+    const maxRounds = 45;
 
-    for (let round = 0; round < maxRounds; round++) {
-        if (collectedPlaces.length >= limit) {
-            console.log(`\n Target tercapai: ${collectedPlaces.length}/${limit} data berhasil dikumpulkan!`);
-            break;
+    async function checkAndHandleCaptcha() {
+        const urlEval = await send('Runtime.evaluate', { expression: 'window.location.href', returnByValue: true });
+        const currentUrl = urlEval.result?.value || '';
+        const domCaptcha = (await send('Runtime.evaluate', {
+            expression: '!!(document.querySelector("#captcha-form, iframe[src*=\'recaptcha\'], iframe[src*=\'hcaptcha\'], .g-recaptcha"))',
+            returnByValue: true
+        })).result?.value;
+
+        if (!(currentUrl.includes('google.com/sorry') || domCaptcha)) {
+            return 'ok';
         }
 
-        await sleep(2000);
+        console.log('\n⚠️ PERHATIAN: Google menampilkan layar verifikasi CAPTCHA!');
+        triggerAudioAlert();
 
-        // Check for CAPTCHA / Sorry URL
-        const urlEval = await send('Runtime.evaluate', { expression: 'window.location.href' });
-        const currentUrl = urlEval.result?.value || '';
-
-        const isCaptcha = currentUrl.includes('google.com/sorry') ||
-            (await send('Runtime.evaluate', {
-                expression: '!!(document.querySelector("#captcha-form, iframe[src*=\'recaptcha\'], .g-recaptcha"))'
-            })).result?.value;
-
-        if (isCaptcha) {
-            console.log('\n⚠️ PERHATIAN: Google menampilkan layar verifikasi CAPTCHA!');
-            triggerAudioAlert();
-
-            // Bring window to visible foreground
-            try {
-                if (process.platform === 'win32') {
-                    execSync(`powershell.exe -NoProfile -Command "(Get-Process -Name chrome, msedge -ErrorAction SilentlyContinue) | ForEach-Object { (New-Object -ComObject WScript.Shell).AppActivate($_.Id) }"`, { stdio: 'ignore' });
-                }
-            } catch (_) {}
-
-            updateProgress('captcha_required', collectedPlaces.length, true);
-
-            console.log('Menunggu Anda menyelesaikan CAPTCHA di layar (Batas waktu: 45 detik)...');
-            let solved = false;
-            for (let sec = 45; sec > 0; sec--) {
-                process.stdout.write(`\rSisa waktu: ${sec} detik... `);
-                await sleep(1000);
-                const checkUrl = (await send('Runtime.evaluate', { expression: 'window.location.href' })).result?.value || '';
-                if (!checkUrl.includes('google.com/sorry')) {
-                    solved = true;
-                    break;
-                }
+        // Bring Chrome window to visible screen position and focus it
+        try {
+            const winInfo = await send('Browser.getWindowForTarget').catch(() => null);
+            if (winInfo && winInfo.windowId) {
+                await send('Browser.setWindowBounds', {
+                    windowId: winInfo.windowId,
+                    bounds: { left: 80, top: 60, width: 1100, height: 760, windowState: 'normal' }
+                }).catch(() => {});
             }
+            if (process.platform === 'win32') {
+                execSync(`powershell.exe -NoProfile -Command "(Get-Process -Name chrome, msedge -ErrorAction SilentlyContinue) | ForEach-Object { (New-Object -ComObject WScript.Shell).AppActivate($_.Id) }"`, { stdio: 'ignore' });
+            }
+        } catch (_) {}
 
-            if (solved) {
-                console.log('\n✅ CAPTCHA Berhasil diselesaikan! Melanjutkan scraping...');
-                updateProgress('running', collectedPlaces.length, false);
-                await sleep(2000);
-                continue;
-            } else {
-                console.log('\n⏰ Batas 45 detik habis.');
-                console.log(`[Fail-safe] ${collectedPlaces.length} data yang sudah didapat tetap aman tersimpan!`);
-                console.log('Mengalihkan sisa target ke Cloud API (Failover)...\n');
+        updateProgress('captcha_required', collectedPlaces.length, true);
+        console.log('Menunggu Anda menyelesaikan CAPTCHA di layar (Batas waktu: 45 detik)...');
 
-                // Write failover signal file
-                fs.writeFileSync(failoverFile, JSON.stringify({
-                    query,
-                    collected: collectedPlaces.length,
-                    remaining: Math.max(1, limit - collectedPlaces.length),
-                    reason: 'captcha_timeout',
-                    created_at: new Date().toISOString()
-                }, null, 2), 'utf-8');
-
-                updateProgress('failover_to_api', collectedPlaces.length);
+        let solved = false;
+        for (let sec = 45; sec > 0; sec--) {
+            process.stdout.write(`\rSisa waktu CAPTCHA: ${sec} detik... `);
+            await sleep(1000);
+            const checkUrl = (await send('Runtime.evaluate', { expression: 'window.location.href', returnByValue: true })).result?.value || '';
+            const stillDom = (await send('Runtime.evaluate', {
+                expression: '!!(document.querySelector("#captcha-form, iframe[src*=\'recaptcha\'], iframe[src*=\'hcaptcha\']"))',
+                returnByValue: true
+            })).result?.value;
+            if (!checkUrl.includes('sorry') && !stillDom) {
+                solved = true;
                 break;
             }
         }
 
-        // Evaluate and extract cards in Google Maps feed
-        const extractScript = `
-            (() => {
-                const results = [];
-                const cards = document.querySelectorAll('div[role="feed"] div.Nv2PK, div.m6QErb div.Nv2PK');
-                cards.forEach(card => {
-                    const titleEl = card.querySelector('.qBF1Pd, .fontHeadlineSmall, [role="heading"]');
-                    if (!titleEl) return;
-                    const name = titleEl.textContent.trim();
+        if (solved) {
+            console.log('\n✅ CAPTCHA Berhasil diselesaikan! Melanjutkan scraping...');
+            if (startHeadless) {
+                const winInfo = await send('Browser.getWindowForTarget').catch(() => null);
+                if (winInfo && winInfo.windowId) {
+                    await send('Browser.setWindowBounds', {
+                        windowId: winInfo.windowId,
+                        bounds: { left: -2000, top: -2000, width: 1100, height: 760 }
+                    }).catch(() => {});
+                }
+            }
+            updateProgress('running', collectedPlaces.length, false);
+            await sleep(1500);
+            return 'solved';
+        }
+
+        console.log('\n⏰ Batas 45 detik habis.');
+        console.log(`[Fail-safe] ${collectedPlaces.length} data yang sudah didapat tetap aman tersimpan!`);
+        console.log('Mengalihkan sisa target ke Cloud API (Failover Merge)...\n');
+
+        fs.writeFileSync(failoverFile, JSON.stringify({
+            query,
+            collected: collectedPlaces.length,
+            remaining: Math.max(1, limit - collectedPlaces.length),
+            reason: 'captcha_timeout',
+            created_at: new Date().toISOString()
+        }, null, 2), 'utf-8');
+
+        updateProgress('failover_to_api', collectedPlaces.length, false);
+        return 'failover';
+    }
+
+    for (let round = 0; round < maxRounds; round++) {
+        if (collectedPlaces.length >= limit) {
+            console.log(`\n Target tercapai: ${collectedPlaces.length}/${limit} data real berhasil dikumpulkan!`);
+            break;
+        }
+
+        const capState = await checkAndHandleCaptcha();
+        if (capState === 'failover') break;
+
+        // Gather unseen card links in Google Maps feed
+        const candidatesRes = await send('Runtime.evaluate', {
+            returnByValue: true,
+            expression: `(() => {
+                const feed = document.querySelector('[role="feed"]');
+                if (!feed) return [];
+                const list = [];
+                const seen = new Set();
+                feed.querySelectorAll('a[href*="/maps/place/"]').forEach((a, idx) => {
+                    const href = a.href || '';
+                    const m = href.match(/!1s([^!/?]+)/);
+                    const key = m ? m[1] : href.split('?')[0];
+                    if (!key || seen.has(key)) return;
+                    seen.add(key);
+                    const name = (a.getAttribute('aria-label') || a.textContent || '').trim();
                     if (!name) return;
+                    list.push({ key, name, href });
+                });
+                return list;
+            })()`
+        });
 
-                    const linkEl = card.querySelector('a.hfpxzc, a[href*="/maps/place/"]');
-                    const mapsUrl = linkEl ? linkEl.href : '';
+        const candidates = (candidatesRes.result?.value || []).filter(c => !visitedKeys.has(c.key));
+        let openedAny = false;
 
-                    // Rating and reviews
+        for (const cand of candidates) {
+            if (collectedPlaces.length >= limit) break;
+            visitedKeys.add(cand.key);
+            openedAny = true;
+
+            const capInner = await checkAndHandleCaptcha();
+            if (capInner === 'failover') {
+                round = maxRounds;
+                break;
+            }
+
+            // Click matching card in DOM to load its genuine detail pane
+            await send('Runtime.evaluate', {
+                returnByValue: true,
+                expression: `(() => {
+                    const links = Array.from(document.querySelectorAll('[role="feed"] a[href*="/maps/place/"]'));
+                    const target = links.find(a => a.href === ${JSON.stringify(cand.href)});
+                    if (target) {
+                        target.scrollIntoView({ block: 'nearest' });
+                        target.click();
+                        return true;
+                    }
+                    return false;
+                })()`
+            });
+
+            await sleep(1400);
+
+            // Read ONLY observed fields from the active [role="main"] detail pane
+            const profileRes = await send('Runtime.evaluate', {
+                returnByValue: true,
+                expression: `(() => {
+                    const headings = Array.from(document.querySelectorAll('h1.DUwDvf, h1.fontHeadlineLarge'));
+                    const h1 = headings.find(el => el.getClientRects().length > 0);
+                    if (!h1) return null;
+                    const root = h1.closest('[role="main"]') || document;
+                    const txt = sel => {
+                        const el = Array.from(root.querySelectorAll(sel)).find(n => n.getClientRects().length > 0);
+                        return el ? (el.innerText || el.getAttribute('aria-label') || '').trim() : '';
+                    };
+
+                    const phoneEl = Array.from(root.querySelectorAll('button[data-item-id^="phone:tel:"], a[href^="tel:"]')).find(n => n.getClientRects().length > 0);
+                    let rawPhone = '';
+                    if (phoneEl) {
+                        rawPhone = phoneEl.getAttribute('data-item-id')?.replace(/^phone:tel:/, '')
+                            || phoneEl.getAttribute('href')?.replace(/^tel:/i, '')
+                            || (phoneEl.innerText || phoneEl.getAttribute('aria-label') || '').replace(/^(Telepon|Phone):\\s*/i, '');
+                    }
+                    rawPhone = String(rawPhone || '').trim();
+                    const digits = rawPhone.replace(/[^0-9+]/g, '');
+                    let waPhone = '';
+                    if (digits.startsWith('+628')) waPhone = digits.slice(1);
+                    else if (digits.startsWith('628')) waPhone = digits;
+                    else if (digits.startsWith('08')) waPhone = '62' + digits.slice(1);
+
+                    const webEl = Array.from(root.querySelectorAll('a[data-item-id="authority"]')).find(n => n.getClientRects().length > 0);
+                    const website = webEl && /^https?:\\/\\//i.test(webEl.href || '') ? webEl.href : '';
+
                     let rating = 0;
                     let reviews = 0;
-                    const starEl = card.querySelector('span.MW4etd');
-                    if (starEl) rating = parseFloat(starEl.textContent.replace(',', '.')) || 0;
-                    const revEl = card.querySelector('span.UY7F9');
-                    if (revEl) {
-                        const m = revEl.textContent.replace(/[(),]/g, '').trim();
-                        reviews = parseInt(m, 10) || 0;
-                    }
-
-                    // Text details
-                    const textElements = card.querySelectorAll('.W4Efsd');
-                    let address = '';
-                    let category = 'Bisnis';
-                    let phone = '';
-
-                    textElements.forEach(el => {
-                        const t = el.textContent.trim();
-                        if (!t) return;
-                        const phoneMatch = t.match(/(?:\\+?62|08)[0-9\\s\\-]{8,15}/);
-                        if (phoneMatch && !phone) phone = phoneMatch[0].replace(/[^0-9]/g, '');
-                        if (!address && (t.includes('Jl.') || t.includes('Kec.') || t.includes('Kab.') || t.includes('Kota'))) {
-                            address = t;
-                        }
+                    const starText = txt('.F7nice span[aria-hidden="true"]');
+                    if (starText) rating = parseFloat(starText.replace(',', '.')) || 0;
+                    root.querySelectorAll('.F7nice [aria-label]').forEach(el => {
+                        const lbl = el.getAttribute('aria-label') || '';
+                        const rm = lbl.match(/(\\d+(?:[.,\\s]\\d{3})*)\\s*(?:ulasan|reviews?|penilaian)/i);
+                        if (rm && !reviews) reviews = parseInt(rm[1].replace(/[.,\\s]/g, ''), 10) || 0;
                     });
 
-                    results.push({
-                        name,
-                        category,
-                        address: address || 'Google Maps',
-                        phone,
-                        whatsapp: (phone.startsWith('08') || phone.startsWith('628')) ? phone : '',
+                    const href = window.location.href;
+                    const coordMatch = [...href.matchAll(/!3d(-?\\d+(?:\\.\\d+)?)!4d(-?\\d+(?:\\.\\d+)?)/g)].at(-1);
+                    const lat = coordMatch ? parseFloat(coordMatch[1]) : null;
+                    const lng = coordMatch ? parseFloat(coordMatch[2]) : null;
+
+                    return {
+                        name: (h1.innerText || '').trim(),
+                        category: txt('button.DkEaL') || 'Bisnis',
+                        address: txt('button[data-item-id="address"]').replace(/^(Alamat|Address):\\s*/i, ''),
+                        phone: rawPhone,
+                        whatsapp: waPhone,
+                        website: website,
+                        opening_hours: txt('[data-item-id="oh"], button[jsaction*="pane.openhours"]').replace(/\\s+/g, ' ').trim(),
                         rating,
                         reviews_count: reviews,
-                        google_maps_url: mapsUrl,
+                        lat,
+                        lng,
+                        google_maps_url: href,
                         source: 'local_headless',
                         source_type: 'google_maps',
                         source_name: 'Chrome Mesin Lokal'
-                    });
-                });
-                return results;
-            })()
-        `;
+                    };
+                })()`
+            });
 
-        const evalRes = await send('Runtime.evaluate', { expression: extractScript, returnByValue: true });
-        const items = evalRes.result?.value || [];
-
-        let newItemsFound = 0;
-        for (const item of items) {
-            const beforeCount = collectedPlaces.length;
-            savePlaceIncrementally(item);
-            if (collectedPlaces.length > beforeCount) newItemsFound++;
-            if (collectedPlaces.length >= limit) break;
+            const place = profileRes.result?.value;
+            if (place && place.name) {
+                savePlaceIncrementally(place);
+            }
         }
 
-        // Scroll the feed down
-        await send('Runtime.evaluate', {
-            expression: `
-                (() => {
-                    const feed = document.querySelector('div[role="feed"]');
-                    if (feed) feed.scrollBy(0, 1200);
-                    else window.scrollBy(0, 1000);
-                })()
-            `
-        });
+        if (collectedPlaces.length >= limit) break;
 
-        if (newItemsFound === 0) idleRounds++;
+        // Scroll feed down to load more genuine places
+        await send('Runtime.evaluate', {
+            expression: `(() => {
+                const feed = document.querySelector('div[role="feed"]');
+                if (feed) feed.scrollBy(0, 1200);
+                else window.scrollBy(0, 1000);
+            })()`
+        });
+        await sleep(1600);
+
+        if (!openedAny) idleRounds++;
         else idleRounds = 0;
 
         if (idleRounds >= 6) {
-            console.log('Tidak ada tempat baru yang ditemukan dalam beberapa putaran scroll.');
+            console.log('Tidak ada hasil baru yang muncul di Google Maps setelah beberapa putaran scroll.');
             break;
         }
     }
 
-    updateProgress('completed', collectedPlaces.length);
-    console.log(`\n Selesai! Total ${collectedPlaces.length} data tersimpan di ${latestFile}`);
+    if (fs.existsSync(failoverFile)) {
+        updateProgress('failover_to_api', collectedPlaces.length, false);
+    } else {
+        updateProgress('completed', collectedPlaces.length, false);
+    }
+    console.log(`\n Selesai! Total ${collectedPlaces.length} data asli tersimpan di ${latestFile}`);
 
     // Clean up Chrome process
     try { chromeProc.kill(); } catch (_) {}

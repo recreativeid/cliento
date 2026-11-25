@@ -296,7 +296,7 @@ function serpapiScrapePlaces($query, $limit = 25) {
  * 4. Waterfall Router (Estafet Berurutan)
  * Menjalankan urutan: Apify -> Outscraper -> SerpApi -> Google Places
  */
-function cloudScrapeWaterfall($query, $limit = 25, $preferredProvider = null) {
+function cloudScrapeWaterfall($query, $limit = 25, $preferredProvider = null, $meta = []) {
     $chain = ['apify', 'outscraper', 'serpapi', 'google_places'];
     if ($preferredProvider && in_array($preferredProvider, $chain, true)) {
         // Prioritaskan provider yang dipilih pengguna di depan
@@ -304,54 +304,95 @@ function cloudScrapeWaterfall($query, $limit = 25, $preferredProvider = null) {
     }
 
     $errors = [];
+    $attemptLog = [];
     $attempted = 0;
 
     foreach ($chain as $provider) {
         if ($provider === 'apify') {
-            if (!defined('APIFY_TOKEN') || APIFY_TOKEN === '') continue;
+            if (!defined('APIFY_TOKEN') || APIFY_TOKEN === '') {
+                $attemptLog[] = ['provider' => 'apify', 'label' => 'Apify', 'status' => 'off', 'reason' => 'APIFY_TOKEN kosong di config.local.php'];
+                continue;
+            }
             $attempted++;
             $res = apifyScrapePlaces($query, $limit);
-            if ($res['success'] && !empty($res['places'])) return $res;
-            $errors['Apify'] = $res['error'] ?? 'Tidak ada data';
+            if ($res['success'] && !empty($res['places'])) {
+                $attemptLog[] = ['provider' => 'apify', 'label' => 'Apify', 'status' => 'active', 'count' => count($res['places'])];
+                $res['attempt_log'] = $attemptLog;
+                return $res;
+            }
+            $err = $res['error'] ?? 'Tidak ada data';
+            $errors['Apify'] = $err;
+            $attemptLog[] = ['provider' => 'apify', 'label' => 'Apify', 'status' => 'error', 'reason' => $err];
         } elseif ($provider === 'outscraper') {
-            if (!defined('OUTSCRAPER_API_KEY') || OUTSCRAPER_API_KEY === '') continue;
+            if (!defined('OUTSCRAPER_API_KEY') || OUTSCRAPER_API_KEY === '') {
+                $attemptLog[] = ['provider' => 'outscraper', 'label' => 'Outscraper', 'status' => 'off', 'reason' => 'OUTSCRAPER_API_KEY kosong di config.local.php'];
+                continue;
+            }
             $attempted++;
             $res = outscraperScrapePlaces($query, $limit);
-            if ($res['success'] && !empty($res['places'])) return $res;
-            $errors['Outscraper'] = $res['error'] ?? 'Tidak ada data';
+            if ($res['success'] && !empty($res['places'])) {
+                $attemptLog[] = ['provider' => 'outscraper', 'label' => 'Outscraper', 'status' => 'active', 'count' => count($res['places'])];
+                $res['attempt_log'] = $attemptLog;
+                return $res;
+            }
+            $err = $res['error'] ?? 'Tidak ada data';
+            $errors['Outscraper'] = $err;
+            $attemptLog[] = ['provider' => 'outscraper', 'label' => 'Outscraper', 'status' => 'error', 'reason' => $err];
         } elseif ($provider === 'serpapi') {
-            if (!defined('SERPAPI_API_KEY') || SERPAPI_API_KEY === '') continue;
+            if (!defined('SERPAPI_API_KEY') || SERPAPI_API_KEY === '') {
+                $attemptLog[] = ['provider' => 'serpapi', 'label' => 'SerpApi', 'status' => 'off', 'reason' => 'SERPAPI_API_KEY kosong di config.local.php'];
+                continue;
+            }
             $attempted++;
             $res = serpapiScrapePlaces($query, $limit);
-            if ($res['success'] && !empty($res['places'])) return $res;
-            $errors['SerpApi'] = $res['error'] ?? 'Tidak ada data';
+            if ($res['success'] && !empty($res['places'])) {
+                $attemptLog[] = ['provider' => 'serpapi', 'label' => 'SerpApi', 'status' => 'active', 'count' => count($res['places'])];
+                $res['attempt_log'] = $attemptLog;
+                return $res;
+            }
+            $err = $res['error'] ?? 'Tidak ada data';
+            $errors['SerpApi'] = $err;
+            $attemptLog[] = ['provider' => 'serpapi', 'label' => 'SerpApi', 'status' => 'error', 'reason' => $err];
         } elseif ($provider === 'google_places') {
-            if (!function_exists('googlePlacesIsConfigured') || !googlePlacesIsConfigured()) continue;
+            if (!function_exists('googlePlacesIsConfigured') || !googlePlacesIsConfigured()) {
+                $attemptLog[] = ['provider' => 'google_places', 'label' => 'Google Places', 'status' => 'off', 'reason' => 'GOOGLE_MAPS_API_KEY kosong / nonaktif di config.local.php'];
+                continue;
+            }
             $attempted++;
-            $places = googlePlacesSearch(['query_text' => $query, 'max_pages' => 2]);
+            $cat = trim((string)($meta['category'] ?? '')) ?: $query;
+            $loc = trim((string)($meta['location'] ?? '')) ?: 'Indonesia';
+            $lat = isset($meta['lat']) && is_numeric($meta['lat']) ? (float)$meta['lat'] : -7.4589;
+            $lng = isset($meta['lng']) && is_numeric($meta['lng']) ? (float)$meta['lng'] : 110.2251;
+            $places = googlePlacesSearch($cat, $loc, $lat, $lng, 5, max(1, min(60, (int)$limit)));
             if (!empty($places)) {
+                $attemptLog[] = ['provider' => 'google_places', 'label' => 'Google Places', 'status' => 'active', 'count' => count($places)];
                 return [
                     'success' => true,
                     'provider' => 'google_places',
                     'places' => $places,
-                    'total' => count($places)
+                    'total' => count($places),
+                    'attempt_log' => $attemptLog
                 ];
             }
-            $errors['Google Places'] = 'Tidak ada tempat ditemukan atau kuota habis';
+            $err = 'Tidak ada tempat ditemukan atau kuota habis / ditolak Google';
+            $errors['Google Places'] = $err;
+            $attemptLog[] = ['provider' => 'google_places', 'label' => 'Google Places', 'status' => 'error', 'reason' => $err];
         }
     }
 
     if ($attempted === 0) {
         return [
             'success' => false,
-            'message' => 'Belum ada API Key Cloud yang diisi. Masukkan APIFY_TOKEN, OUTSCRAPER_API_KEY, atau SERPAPI_API_KEY di config.local.php.',
-            'status' => cloudScraperGetStatus()
+            'message' => 'Belum ada API Key Cloud atau Google Places yang diisi di config.local.php.',
+            'status' => cloudScraperGetStatus(),
+            'attempt_log' => $attemptLog
         ];
     }
 
     return [
         'success' => false,
-        'message' => 'Semua provider cloud yang terkonfigurasi gagal mendapatkan data.',
-        'details' => $errors
+        'message' => 'Semua provider Cloud / Places yang terkonfigurasi gagal mendapatkan data.',
+        'details' => $errors,
+        'attempt_log' => $attemptLog
     ];
 }

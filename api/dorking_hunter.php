@@ -17,8 +17,8 @@ function dorkingExtractPhones($text) {
     $phones = [];
     if (empty($text)) return $phones;
 
-    // 1. Direct wa.me links
-    if (preg_match_all('~wa\.me/(?:62|0)?(\d{8,15})~i', $text, $waMatches)) {
+    // 1. Direct wa.me & api.whatsapp.com links
+    if (preg_match_all('~(?:wa\.me/|api\.whatsapp\.com/send\?[^\s"\']*?phone=)(?:62|0)?(\d{8,15})~i', $text, $waMatches)) {
         foreach ($waMatches[1] as $p) {
             $normalized = (strpos($p, '08') === 0) ? $p : '0' . ltrim($p, '62');
             $phones[] = $normalized;
@@ -76,8 +76,70 @@ function dorkingCleanTitle($title, $platform) {
     return trim($t) ?: 'Bisnis Online';
 }
 
+function dorkingCleanDuckDuckGoUrl($link) {
+    $link = html_entity_decode(trim((string)$link), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    if (strpos($link, '//') === 0) {
+        $link = 'https:' . $link;
+    }
+    if (strpos($link, 'uddg=') !== false) {
+        $queryPart = parse_url($link, PHP_URL_QUERY) ?? '';
+        parse_str($queryPart, $qp);
+        if (!empty($qp['uddg'])) {
+            $link = urldecode($qp['uddg']);
+        }
+    }
+    return $link;
+}
+
 /**
- * Run DuckDuckGo query via HTML endpoint with browser emulation headers
+ * Parse DuckDuckGo HTML safely using DOMDocument + DOMXPath (handles nested divs cleanly)
+ */
+function dorkingParseDuckDuckGoHtml($html) {
+    if (empty($html) || !is_string($html)) return [];
+    $results = [];
+
+    if (class_exists('DOMDocument')) {
+        $dom = new DOMDocument();
+        $prevUseErrors = libxml_use_internal_errors(true);
+        $loaded = @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET | LIBXML_NOWARNING | LIBXML_NOERROR);
+        libxml_clear_errors();
+        libxml_use_internal_errors($prevUseErrors);
+
+        if ($loaded) {
+            $xpath = new DOMXPath($dom);
+            $nodes = $xpath->query("//div[contains(concat(' ', normalize-space(@class), ' '), ' result ')]");
+            if ($nodes && $nodes->length > 0) {
+                foreach ($nodes as $node) {
+                    $titleNode = $xpath->query(".//a[contains(@class, 'result__a')]", $node)->item(0)
+                        ?: $xpath->query(".//h2//a", $node)->item(0);
+                    $snipNode = $xpath->query(".//*[contains(@class, 'result__snippet')]", $node)->item(0);
+                    $urlNode = $xpath->query(".//a[contains(@class, 'result__url')]", $node)->item(0);
+
+                    $title = $titleNode ? trim($titleNode->textContent) : 'Profil Bisnis';
+                    $href = $titleNode ? $titleNode->getAttribute('href') : ($urlNode ? $urlNode->getAttribute('href') : '');
+                    if (empty($href) && $snipNode && $snipNode->nodeName === 'a') {
+                        $href = $snipNode->getAttribute('href');
+                    }
+                    $link = dorkingCleanDuckDuckGoUrl($href);
+                    $snippet = $snipNode ? trim($snipNode->textContent) : trim($node->textContent);
+
+                    if (!empty($link) && (!empty($snippet) || !empty($title))) {
+                        $results[] = [
+                            'title' => preg_replace('/\s+/', ' ', $title) ?: 'Profil Bisnis',
+                            'url' => $link,
+                            'snippet' => preg_replace('/\s+/', ' ', $snippet)
+                        ];
+                    }
+                }
+            }
+        }
+    }
+
+    return $results;
+}
+
+/**
+ * Run DuckDuckGo query via HTML endpoint with browser emulation headers and clear status
  */
 function dorkingQueryDuckDuckGo($dorkQuery) {
     $ch = curl_init('https://html.duckduckgo.com/html/');
@@ -88,7 +150,7 @@ function dorkingQueryDuckDuckGo($dorkQuery) {
     ]);
 
     $headers = [
-        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
         'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language: id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
         'Content-Type: application/x-www-form-urlencoded',
@@ -112,53 +174,27 @@ function dorkingQueryDuckDuckGo($dorkQuery) {
     $curlErr = curl_error($ch);
     curl_close($ch);
 
-    if ($code !== 200 || empty($html)) {
-        return [];
+    if ($html === false || $code < 200 || $code >= 300 || empty($html)) {
+        return [
+            'ok' => false,
+            'http_code' => $code,
+            'blocked' => ($code === 403 || $code === 429 || $code === 202),
+            'error' => $curlErr ?: ('DuckDuckGo HTTP ' . $code),
+            'results' => []
+        ];
     }
 
-    $results = [];
-    // Parse results from DDG HTML
-    // Pattern matches each result block: <div class="result ..."> ... <a class="result__url" href="..."> ... <a class="result__snippet">...</a>
-    if (preg_match_all('~<div[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</div>\s*</div>~si', $html, $blocks)) {
-        foreach ($blocks[1] as $block) {
-            // URL & Title
-            $title = '';
-            $link = '';
-            if (preg_match('~<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>~si', $block, $snipMatch)) {
-                $link = $snipMatch[1];
-            }
-            if (preg_match('~<a[^>]*class="[^"]*result__url[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>~si', $block, $urlMatch)) {
-                if (empty($link)) $link = $urlMatch[1];
-            }
-            if (preg_match('~<a[^>]*class="[^"]*result__title[^"]*"[^>]*>(.*?)</a>~si', $block, $titleMatch)) {
-                $title = strip_tags($titleMatch[1]);
-            }
+    // Detect anti-bot / anomaly challenge page served with HTTP 200
+    $isChallenge = (stripos($html, 'anomaly-modal') !== false || stripos($html, 'Unfortunately, bots use DuckDuckGo') !== false);
+    $results = $isChallenge ? [] : dorkingParseDuckDuckGoHtml($html);
 
-            // Extract plain snippet
-            $snippet = '';
-            if (preg_match('~class="[^"]*result__snippet[^"]*"[^>]*>(.*?)<~si', $block, $sm)) {
-                $snippet = html_entity_decode(strip_tags($sm[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            } else {
-                $snippet = html_entity_decode(strip_tags($block), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            }
-
-            // Clean real target URL from DDG redirect url: /l/?kh=-1&uddg=https%3A%2F%2F...
-            if (strpos($link, 'uddg=') !== false) {
-                parse_str(parse_url($link, PHP_URL_QUERY) ?? '', $qp);
-                if (!empty($qp['uddg'])) $link = urldecode($qp['uddg']);
-            }
-
-            if (!empty($link) && !empty($snippet)) {
-                $results[] = [
-                    'title' => $title ?: 'Profil Bisnis',
-                    'url' => $link,
-                    'snippet' => $snippet
-                ];
-            }
-        }
-    }
-
-    return $results;
+    return [
+        'ok' => !$isChallenge,
+        'http_code' => $code,
+        'blocked' => $isChallenge,
+        'error' => $isChallenge ? 'DuckDuckGo meminta verifikasi anti-bot (anomaly challenge)' : '',
+        'results' => $results
+    ];
 }
 
 /**
@@ -167,6 +203,9 @@ function dorkingQueryDuckDuckGo($dorkQuery) {
 function dorkingHuntWhatsAppLeads($category, $location, $targetPlatform = 'all', $maxResults = 30) {
     $category = trim((string)$category) ?: 'bisnis';
     $location = trim((string)$location) ?: 'Indonesia';
+    if (preg_match('/^(all|semua|semua_bidang|all_categories)$/i', $category)) {
+        $category = 'usaha';
+    }
 
     $dorks = [];
     if ($targetPlatform === 'instagram' || $targetPlatform === 'all') {
@@ -179,21 +218,32 @@ function dorkingHuntWhatsAppLeads($category, $location, $targetPlatform = 'all',
         $dorks[] = ['platform' => 'tiktok', 'query' => 'site:tiktok.com "' . $category . '" "' . $location . '" ("wa.me" OR "08")'];
     }
     if ($targetPlatform === 'website' || $targetPlatform === 'all') {
-        $dorks[] = ['platform' => 'website', 'query' => '"' . $category . '" "' . $location . '" ("wa.me/62" OR "wa.me/08")'];
+        $dorks[] = ['platform' => 'website', 'query' => '"' . $category . '" "' . $location . '" ("wa.me/62" OR "wa.me/08" OR "api.whatsapp.com")'];
     }
 
     $leads = [];
     $seenPhones = [];
+    $rawHits = 0;
+    $blockedCount = 0;
+    $lastHttp = 0;
+    $lastErr = '';
 
-    foreach ($dorks as $dork) {
+    foreach ($dorks as $idx => $dork) {
         if (count($leads) >= $maxResults) break;
 
-        // Polite delay between queries (1.5s) to preserve residential IP trust
-        usleep(1500000);
+        // Polite delay between queries (1.2s) to preserve IP reputation
+        if ($idx > 0) usleep(1200000);
 
-        $rawResults = dorkingQueryDuckDuckGo($dork['query']);
+        $resp = dorkingQueryDuckDuckGo($dork['query']);
+        $lastHttp = $resp['http_code'];
+        if (!empty($resp['blocked'])) $blockedCount++;
+        if (!empty($resp['error'])) $lastErr = $resp['error'];
+
+        $rawResults = $resp['results'] ?? [];
+        $rawHits += count($rawResults);
+
         foreach ($rawResults as $item) {
-            $phones = dorkingExtractPhones($item['title'] . ' ' . $item['snippet']);
+            $phones = dorkingExtractPhones($item['title'] . ' ' . $item['snippet'] . ' ' . $item['url']);
             if (empty($phones)) continue;
 
             $platform = dorkingDetectPlatform($item['url']);
@@ -229,12 +279,23 @@ function dorkingHuntWhatsAppLeads($category, $location, $targetPlatform = 'all',
         }
     }
 
+    $engineActive = ($rawHits > 0) || ($blockedCount === 0 && empty($lastErr));
+
     return [
-        'success' => true,
+        'success' => $engineActive || !empty($leads),
         'category' => $category,
         'location' => $location,
         'platform' => $targetPlatform,
         'leads' => $leads,
-        'total' => count($leads)
+        'total' => count($leads),
+        'diagnostics' => [
+            'engine' => 'DuckDuckGo HTML',
+            'active' => $engineActive,
+            'queries_run' => count($dorks),
+            'raw_search_hits' => $rawHits,
+            'blocked_or_captcha' => $blockedCount > 0,
+            'last_http_code' => $lastHttp,
+            'error' => $lastErr
+        ]
     ];
 }

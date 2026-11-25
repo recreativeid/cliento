@@ -3,10 +3,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-console.log('--- Testing Unified Hybrid Scraper UI & Static Host Fallback ---');
+console.log('--- Testing Honest Multi-Engine UI, Telemetry & No-Fake-Data Guard ---');
 
 const scraperJs = fs.readFileSync(path.join(__dirname, '../assets/js/scraper.js'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const scraperPhp = fs.readFileSync(path.join(__dirname, '../api/scraper.php'), 'utf8');
+const cloudScraperPhp = fs.readFileSync(path.join(__dirname, '../api/cloud_scraper.php'), 'utf8');
+const localJs = fs.readFileSync(path.join(__dirname, '../scripts/local_headless_scraper.js'), 'utf8');
 
 // 1. Structural HTML check: ensure scraper-right-panel is inside scraper-split-container (map sits on the RIGHT, not below!)
 const splitStart = indexHtml.indexOf('<div class="scraper-split-container">');
@@ -19,54 +22,66 @@ const openDivs = (betweenLeftAndRight.match(/<div\b/g) || []).length;
 const closeDivs = (betweenLeftAndRight.match(/<\/div>/g) || []).length;
 assert.equal(openDivs, closeDivs, `HTML div balance between left panel and right panel must be equal (open=${openDivs}, close=${closeDivs}) so scraper-right-panel stays inside the CSS grid!`);
 
-// 2. UX Step Ordering: Langkah 1 (Target Usaha) comes BEFORE Langkah 2 (Wilayah), followed by Langkah 3 (1 Button)
+// 2. UX Step Ordering & Live Diagnostics Elements
 const posStep1 = indexHtml.indexOf('Langkah 1 · Mau Cari Bisnis Apa?');
 const posStep2 = indexHtml.indexOf('Langkah 2 · Di Wilayah Mana?');
 const posStep3 = indexHtml.indexOf('Langkah 3 · Ambil Data (1 Klik)');
 assert.ok(posStep1 > 0 && posStep2 > posStep1 && posStep3 > posStep2, 'Steps must be ordered: Step 1 Target -> Step 2 Wilayah -> Step 3 1-Click Extract');
+assert.ok(indexHtml.includes('id="engine-diagnostics-strip"'), 'index.html must include #engine-diagnostics-strip');
+assert.ok(indexHtml.includes('id="engine-telemetry-matrix"'), 'index.html must include #engine-telemetry-matrix');
+assert.ok(indexHtml.includes('id="tile-engine-hybrid"') && indexHtml.includes('value="hybrid" checked'), 'hybrid engine must be selected by default');
 
-// 3. Default engine must be hybrid (Google Maps + Sosmed Dorking in 1 button)
-assert.ok(indexHtml.includes('id="tile-engine-hybrid"'), 'index.html must include hybrid engine option');
-assert.ok(indexHtml.includes('value="hybrid" checked'), 'hybrid engine must be checked by default');
-assert.ok(!indexHtml.includes('Semua Bidang Usaha (Semua Kategori)</option>'), 'Sector default option should be concise without clutter');
+// 3. NO FAKE DATA GENERATOR anywhere in scraper.js!
+assert.equal(scraperJs.includes('generateStaticHostLeads'), false, 'scraper.js must NEVER include fake generateStaticHostLeads generator!');
+assert.equal(scraperJs.includes('0812-28'), false, 'scraper.js must NEVER synthesize fake 0812 phone numbers!');
 
-// 4. Evaluate ScraperClient in VM to verify Hybrid Merge, clean dropdowns without (0), and keyword priority
+// 4. Verify backend contracts: engine_diagnostics, Google Places positional call, and Local Chrome real detail extraction
+assert.ok(scraperPhp.includes("action === 'engine_diagnostics'"), 'api/scraper.php must expose engine_diagnostics endpoint');
+assert.ok(scraperPhp.includes("start \"\" /B "), 'api/scraper.php Windows popen must quote empty title cleanly');
+assert.ok(cloudScraperPhp.includes('googlePlacesSearch($cat, $loc, $lat, $lng'), 'api/cloud_scraper.php must pass positional args to googlePlacesSearch');
+assert.ok(cloudScraperPhp.includes("'attempt_log' =>"), 'api/cloud_scraper.php must report attempt_log per provider');
+assert.ok(localJs.includes('button[data-item-id^="phone:tel:"]'), 'local_headless_scraper.js must inspect detail pane phone selector');
+assert.ok(localJs.includes('failover_to_api'), 'local_headless_scraper.js must preserve 45s failover_to_api');
+
+// 5. Evaluate ScraperClient in VM to verify static host refusal, Hybrid Merge separation, and clean dropdowns
 const exportLine = 'window.ScraperClient = ScraperClient;';
-const context = { window: { location: { hostname: 'recreativeid.github.io', protocol: 'https:' } }, document: { getElementById: () => null }, console, URL };
+const context = {
+    window: { location: { hostname: 'recreativeid.github.io', protocol: 'https:' } },
+    document: { getElementById: () => null, createElement: () => ({ style: {}, appendChild() {}, querySelector() { return null; } }) },
+    console,
+    URL
+};
 vm.runInNewContext(scraperJs.slice(0, scraperJs.indexOf(exportLine) + exportLine.length), context);
 const client = context.window.ScraperClient;
 
 assert.equal(client.isStaticHost(), true, 'isStaticHost() must return true for github.io');
-assert.equal(typeof client.executeHybridScrape, 'function', 'executeHybridScrape must exist');
-assert.equal(typeof client.mergeHybridLeads, 'function', 'mergeHybridLeads must exist');
-assert.equal(typeof client.pollLocalScraper, 'function', 'pollLocalScraper must exist');
+assert.equal(typeof client.refreshEngineDiagnostics, 'function');
+assert.equal(typeof client.renderTelemetryMatrix, 'function');
 
-// Test mergeHybridLeads keeps Google Maps and Sosmed Dorking cleanly separated for filter tabs
-const mapsLeads = client.generateStaticHostLeads('kuliner', 'Magelang Utara', 3, 'cloud');
-const dorkLeads = client.generateStaticHostLeads('kuliner', 'Magelang Utara', 2, 'dorking');
-const merged = client.mergeHybridLeads(mapsLeads, dorkLeads);
-assert.equal(merged.length, 5, 'Merged leads should preserve both Maps and Dorking entries');
-assert.equal(merged.filter(x => x.source_type !== 'google_dorking').length, 3, 'Tab 1 (Google Maps) count must match');
-assert.equal(merged.filter(x => x.source_type === 'google_dorking').length, 2, 'Tab 2 (Sosmed Dorking) count must match');
+// Running executeHybridScrape on static host must NEVER populate fake scrapedResults!
+client.scrapedResults = [];
+client.executeHybridScrape().then(() => {
+    assert.equal(client.scrapedResults.length, 0, 'Static host must NOT populate fake scrapedResults!');
 
-// Test populateSectorsWithCounts omits (0) when territoryData is null
-const mockSectorSelect = {
-    value: 'semua_bidang',
-    options: [],
-    innerHTML: '',
-    appendChild(opt) { this.options.push(opt); }
-};
-const mockCatSelect = {
-    options: [],
-    innerHTML: '',
-    selectedIndex: 0,
-    appendChild(opt) { this.options.push(opt); }
-};
-context.document.getElementById = id => (id === 'target-sector-select' ? mockSectorSelect : (id === 'target-category-select' ? mockCatSelect : null));
-context.document.createElement = () => ({});
-client.territoryData = null;
-client.populateSectorsWithCounts();
-assert.ok(!mockSectorSelect.options[0].textContent.includes('(0)'), 'Sector dropdown must NOT display misleading (0) when unscanned');
-assert.ok(!mockCatSelect.options[0].textContent.includes('(0)'), 'Category dropdown must NOT display misleading (0) when unscanned');
+    // mergeHybridLeads separation check with authentic-shaped sample records
+    const mapsSample = client.normalizeMapsPlaces([{ name: 'Warung Asli', phone: '08111111111', rating: 4.8, reviews_count: 120, source: 'apify', source_name: 'Apify Google Places' }], 'Magelang', 'Apify', 'apify');
+    const dorkSample = client.normalizeDorkingLeads([{ name: 'Toko Sosmed Asli', phone: '08222222222', whatsapp: '08222222222', source: 'duckduckgo_dorking', source_name: 'Dorking Instagram' }], 'Kuliner', 'Magelang');
+    const merged = client.mergeHybridLeads(mapsSample, dorkSample);
+    assert.equal(merged.length, 2);
+    assert.equal(merged.filter(x => x.source_type !== 'google_dorking').length, 1);
+    assert.equal(merged.filter(x => x.source_type === 'google_dorking').length, 1);
 
-console.log('✓ All Unified Hybrid Scraper UI, Grid Nesting & Fallback tests passed successfully!');
+    // Dropdown clean labels check without (0)
+    const mockSectorSelect = { value: 'semua_bidang', options: [], innerHTML: '', appendChild(opt) { this.options.push(opt); } };
+    const mockCatSelect = { options: [], innerHTML: '', selectedIndex: 0, appendChild(opt) { this.options.push(opt); } };
+    context.document.getElementById = id => (id === 'target-sector-select' ? mockSectorSelect : (id === 'target-category-select' ? mockCatSelect : null));
+    client.territoryData = null;
+    client.populateSectorsWithCounts();
+    assert.ok(!mockSectorSelect.options[0].textContent.includes('(0)'), 'Sector dropdown must omit (0) when unscanned');
+    assert.ok(!mockCatSelect.options[0].textContent.includes('(0)'), 'Category dropdown must omit (0) when unscanned');
+
+    console.log('✓ All Honest Multi-Engine UI, Telemetry & No-Fake-Data tests passed successfully!');
+}).catch(err => {
+    console.error(err);
+    process.exit(1);
+});

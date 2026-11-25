@@ -637,6 +637,19 @@
                 </div>
               </div>
 
+              <!-- Live Status Indikator Mesin (Aktif vs Mati secara Jujur) -->
+              <div id="engine-diagnostics-strip" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 9px; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                  <span style="font-size: 0.62rem; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.4px;">
+                    <i class="fa-solid fa-heart-pulse" style="color: #2563eb;"></i> Status Mesin Aktif vs Mati:
+                  </span>
+                  <button type="button" id="btn-refresh-diagnostics" style="background: none; border: none; color: #2563eb; font-size: 0.62rem; font-weight: 600; cursor: pointer; padding: 0;">Cek Ulang</button>
+                </div>
+                <div id="engine-diagnostics-badges" style="display: flex; flex-wrap: wrap; gap: 4px; font-size: 0.62rem;">
+                  <span style="color: #64748b;">Memeriksa status API, Google Places, Chrome Lokal &amp; DuckDuckGo...</span>
+                </div>
+              </div>
+
               <!-- Pengaturan Batas Jumlah Data -->
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; background: #f8fafc; padding: 6px 10px; border-radius: 8px; border: 1px solid #e2e8f0;">
                 <span style="font-size: 0.70rem; font-weight: 600; color: #475569;">Target Jumlah Data:</span>
@@ -654,19 +667,20 @@
                 <span id="main-execute-btn-label">Mulai Cari Leads (Maps + Sosmed WA)</span>
               </button>
               <div style="font-size: 0.65rem; color: #64748b; text-align: center; margin-top: 6px; line-height: 1.35;">
-                Menjalankan <strong>Google Maps</strong> &amp; <strong>Sosmed Dorking (WA Langsung)</strong> sekaligus, lalu dipisah ke filter masing-masing.
+                Hanya mengambil data asli dari Google Maps &amp; Sosmed WA (tanpa data buatan), lalu dipisah ke filter masing-masing.
               </div>
 
-              <!-- Live Status & Progress Box -->
-              <div id="engine-live-status-box" style="display: none; margin-top: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; font-size: 0.74rem;">
+              <!-- Live Status & Progress Box + Matriks Telemetry Mesin -->
+              <div id="engine-live-status-box" style="display: none; margin-top: 10px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 0.74rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <strong id="engine-status-title" style="color: #1e293b;">Memproses...</strong>
                   <span id="engine-status-badge" class="badge badge-blue">Running</span>
                 </div>
-                <div id="engine-status-msg" style="color: #64748b; font-size: 0.7rem; line-height: 1.4;">Menginisialisasi mesin...</div>
+                <div id="engine-status-msg" style="color: #475569; font-size: 0.7rem; line-height: 1.4;">Menginisialisasi mesin...</div>
                 <div id="engine-progress-bar-wrap" style="background: #e2e8f0; border-radius: 4px; height: 6px; overflow: hidden; margin-top: 6px; display: none;">
                   <div id="engine-progress-bar" style="height: 100%; background: #059669; width: 0%; transition: width 0.3s;"></div>
                 </div>
+                <div id="engine-telemetry-matrix" style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;"></div>
               </div>
 
               <!-- Opsi Lanjutan Mesin (Tertutup Rapi Agar Tampilan Tetap Simpel) -->
@@ -2507,7 +2521,7 @@
   <script src="assets/js/map.js?v=20261001_v39"></script>
   <script src="assets/js/templates.js?v=20261001_v39"></script>
   <script src="assets/js/archives.js?v=20261001_v39"></script>
-  <script src="assets/js/scraper.js?v=20261125_v40"></script>
+  <script src="assets/js/scraper.js?v=20261125_v41"></script>
   <script src="assets/js/data_manager.js?v=20261001_v39"></script>
   <script src="assets/js/auth.js?v=20261001_v39"></script>
   <script src="assets/js/customers.js?v=20261001_v39"></script>
