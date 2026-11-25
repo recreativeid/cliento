@@ -24,9 +24,22 @@ function getArg(name, defaultValue) {
 }
 
 const query = getArg('query', 'kuliner di Magelang');
-const limit = parseInt(getArg('limit', '25'), 10);
+const urlsFile = getArg('urls-file', '');
+let limit = parseInt(getArg('limit', '25'), 10);
 const startHeadless = getArg('headless', 'true') === 'true';
 const storageDir = path.resolve(__dirname, '../storage');
+
+let batchUrls = [];
+if (urlsFile && fs.existsSync(urlsFile)) {
+    try {
+        const parsed = JSON.parse(fs.readFileSync(urlsFile, 'utf-8'));
+        const list = Array.isArray(parsed) ? parsed : (parsed.urls || []);
+        batchUrls = list.map(u => String(u || '').trim()).filter(u => /^https?:\/\//i.test(u));
+        if (batchUrls.length > 0 && (!args.find(a => a.startsWith('--limit=')) || limit < batchUrls.length)) {
+            limit = Math.min(100, batchUrls.length);
+        }
+    } catch (_) {}
+}
 
 if (!fs.existsSync(storageDir)) {
     fs.mkdirSync(storageDir, { recursive: true });
@@ -199,7 +212,7 @@ async function main() {
         '--lang=id-ID',
         '--window-size=1366,850',
         startHeadless ? '--window-position=-2000,-2000' : '--window-position=80,60',
-        `https://www.google.com/maps/search/${encodeURIComponent(query)}?hl=id`
+        batchUrls.length > 0 ? 'about:blank' : `https://www.google.com/maps/search/${encodeURIComponent(query)}?hl=id`
     ];
 
     console.log(`Memulai Chrome via port debugging: ${port}...`);
@@ -319,7 +332,148 @@ async function main() {
         return 'failover';
     }
 
-    for (let round = 0; round < maxRounds; round++) {
+    async function extractOpenPlaceDetail() {
+        const profileRes = await send('Runtime.evaluate', {
+            returnByValue: true,
+            expression: `(() => {
+                const headings = Array.from(document.querySelectorAll('h1.DUwDvf, h1.fontHeadlineLarge'));
+                const h1 = headings.find(el => el.getClientRects().length > 0);
+                if (!h1) return null;
+                const root = h1.closest('[role="main"]') || document;
+                const txt = sel => {
+                    const el = Array.from(root.querySelectorAll(sel)).find(n => n.getClientRects().length > 0);
+                    return el ? (el.innerText || el.getAttribute('aria-label') || '').trim() : '';
+                };
+
+                const phoneEl = Array.from(root.querySelectorAll('button[data-item-id^="phone:tel:"], a[href^="tel:"]')).find(n => n.getClientRects().length > 0);
+                let rawPhone = '';
+                if (phoneEl) {
+                    rawPhone = phoneEl.getAttribute('data-item-id')?.replace(/^phone:tel:/, '')
+                        || phoneEl.getAttribute('href')?.replace(/^tel:/i, '')
+                        || (phoneEl.innerText || phoneEl.getAttribute('aria-label') || '').replace(/^(Telepon|Phone):\\s*/i, '');
+                }
+                rawPhone = String(rawPhone || '').trim();
+                const digits = rawPhone.replace(/[^0-9+]/g, '');
+                let waPhone = '';
+                if (digits.startsWith('+628')) waPhone = digits.slice(1);
+                else if (digits.startsWith('628')) waPhone = digits;
+                else if (digits.startsWith('08')) waPhone = '62' + digits.slice(1);
+
+                const webEl = Array.from(root.querySelectorAll('a[data-item-id="authority"]')).find(n => n.getClientRects().length > 0);
+                const website = webEl && /^https?:\\/\\//i.test(webEl.href || '') ? webEl.href : '';
+
+                let rating = 0;
+                let reviews = 0;
+                const starText = txt('.F7nice span[aria-hidden="true"]');
+                if (starText) rating = parseFloat(starText.replace(',', '.')) || 0;
+                root.querySelectorAll('.F7nice [aria-label]').forEach(el => {
+                    const lbl = el.getAttribute('aria-label') || '';
+                    const rm = lbl.match(/(\\d+(?:[.,\\s]\\d{3})*)\\s*(?:ulasan|reviews?|penilaian)/i);
+                    if (rm && !reviews) reviews = parseInt(rm[1].replace(/[.,\\s]/g, ''), 10) || 0;
+                });
+
+                const href = window.location.href;
+                const coordMatch = [...href.matchAll(/!3d(-?\\d+(?:\\.\\d+)?)!4d(-?\\d+(?:\\.\\d+)?)/g)].at(-1);
+                const lat = coordMatch ? parseFloat(coordMatch[1]) : null;
+                const lng = coordMatch ? parseFloat(coordMatch[2]) : null;
+
+                return {
+                    name: (h1.innerText || '').trim(),
+                    category: txt('button.DkEaL') || 'Bisnis',
+                    address: txt('button[data-item-id="address"]').replace(/^(Alamat|Address):\\s*/i, ''),
+                    phone: rawPhone,
+                    whatsapp: waPhone,
+                    website: website,
+                    opening_hours: txt('[data-item-id="oh"], button[jsaction*="pane.openhours"]').replace(/\\s+/g, ' ').trim(),
+                    rating,
+                    reviews_count: reviews,
+                    lat,
+                    lng,
+                    google_maps_url: href,
+                    source: 'local_headless',
+                    source_type: 'google_maps',
+                    source_name: ${JSON.stringify(batchUrls.length > 0 ? 'Chrome Lokal (Batch Link)' : 'Chrome Mesin Lokal')}
+                };
+            })()`
+        });
+        return profileRes.result?.value || null;
+    }
+
+    async function navigateAndExtractUrl(urlToOpen, previousHref = '') {
+        await send('Page.navigate', { url: urlToOpen });
+        await sleep(1600);
+        const capState = await checkAndHandleCaptcha();
+        if (capState === 'failover') return { failover: true, place: null };
+
+        for (let t = 0; t < 18; t++) {
+            await sleep(450);
+            const curHrefRes = await send('Runtime.evaluate', { expression: 'window.location.href', returnByValue: true }).catch(() => null);
+            const curHref = curHrefRes?.result?.value || '';
+            if (curHref === 'about:blank' || (t < 3 && previousHref && curHref === previousHref)) continue;
+
+            const candidate = await extractOpenPlaceDetail();
+            if (candidate && candidate.name) {
+                // Allow a short hydration beat so phone/website/reviews render completely
+                await sleep(450);
+                const settled = await extractOpenPlaceDetail();
+                return { failover: false, place: (settled && settled.name) ? settled : candidate };
+            }
+
+            if (t >= 4) {
+                const clickedFirst = await send('Runtime.evaluate', {
+                    returnByValue: true,
+                    expression: `(() => {
+                        const first = document.querySelector('[role="feed"] a[href*="/maps/place/"]');
+                        if (first) { first.click(); return true; }
+                        return false;
+                    })()`
+                }).catch(() => null);
+                if (clickedFirst?.result?.value) {
+                    await sleep(1400);
+                    const fromCard = await extractOpenPlaceDetail();
+                    if (fromCard && fromCard.name) {
+                        return { failover: false, place: fromCard };
+                    }
+                }
+            }
+        }
+        return { failover: false, place: null };
+    }
+
+    if (batchUrls.length > 0) {
+        const targets = batchUrls.slice(0, limit);
+        console.log(`Mode Batch Link Google Maps (Ala Amapulse): ${targets.length} link siap diekstrak...`);
+        for (let idx = 0; idx < targets.length; idx++) {
+            const rawUrl = targets[idx];
+            const targetUrl = rawUrl.includes('hl=') ? rawUrl : (rawUrl + (rawUrl.includes('?') ? '&' : '?') + 'hl=id');
+            const prevHrefRes = await send('Runtime.evaluate', { expression: 'window.location.href', returnByValue: true }).catch(() => null);
+            const prevHref = prevHrefRes?.result?.value || '';
+
+            let res = await navigateAndExtractUrl(targetUrl, idx > 0 ? prevHref : '');
+            if (res.failover) break;
+
+            // Fallback if Google Maps stripped an incomplete /maps/place/<Slug>/@lat,lng URL
+            if (!res.place) {
+                const slugMatch = rawUrl.match(/\/maps\/place\/([^/@?#]+)/i);
+                const coordMatch = rawUrl.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+                if (slugMatch && slugMatch[1]) {
+                    const slugName = decodeURIComponent(slugMatch[1].replace(/\+/g, ' ')).trim();
+                    const qFallback = coordMatch ? `${slugName} ${coordMatch[1]},${coordMatch[2]}` : slugName;
+                    const fbUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(qFallback)}&hl=id`;
+                    res = await navigateAndExtractUrl(fbUrl, '');
+                    if (res.failover) break;
+                }
+            }
+
+            if (res.place) {
+                savePlaceIncrementally(res.place);
+            } else {
+                console.log(`[Lewati] (${idx + 1}/${targets.length}) Tidak dapat membaca detail tempat: ${rawUrl}`);
+            }
+        }
+    }
+
+    for (let round = 0; batchUrls.length === 0 && round < maxRounds; round++) {
         if (collectedPlaces.length >= limit) {
             console.log(`\n Target tercapai: ${collectedPlaces.length}/${limit} data real berhasil dikumpulkan!`);
             break;
@@ -417,71 +571,7 @@ async function main() {
             }
 
             // Read ONLY observed fields from the active [role="main"] detail pane
-            const profileRes = await send('Runtime.evaluate', {
-                returnByValue: true,
-                expression: `(() => {
-                    const headings = Array.from(document.querySelectorAll('h1.DUwDvf, h1.fontHeadlineLarge'));
-                    const h1 = headings.find(el => el.getClientRects().length > 0);
-                    if (!h1) return null;
-                    const root = h1.closest('[role="main"]') || document;
-                    const txt = sel => {
-                        const el = Array.from(root.querySelectorAll(sel)).find(n => n.getClientRects().length > 0);
-                        return el ? (el.innerText || el.getAttribute('aria-label') || '').trim() : '';
-                    };
-
-                    const phoneEl = Array.from(root.querySelectorAll('button[data-item-id^="phone:tel:"], a[href^="tel:"]')).find(n => n.getClientRects().length > 0);
-                    let rawPhone = '';
-                    if (phoneEl) {
-                        rawPhone = phoneEl.getAttribute('data-item-id')?.replace(/^phone:tel:/, '')
-                            || phoneEl.getAttribute('href')?.replace(/^tel:/i, '')
-                            || (phoneEl.innerText || phoneEl.getAttribute('aria-label') || '').replace(/^(Telepon|Phone):\\s*/i, '');
-                    }
-                    rawPhone = String(rawPhone || '').trim();
-                    const digits = rawPhone.replace(/[^0-9+]/g, '');
-                    let waPhone = '';
-                    if (digits.startsWith('+628')) waPhone = digits.slice(1);
-                    else if (digits.startsWith('628')) waPhone = digits;
-                    else if (digits.startsWith('08')) waPhone = '62' + digits.slice(1);
-
-                    const webEl = Array.from(root.querySelectorAll('a[data-item-id="authority"]')).find(n => n.getClientRects().length > 0);
-                    const website = webEl && /^https?:\\/\\//i.test(webEl.href || '') ? webEl.href : '';
-
-                    let rating = 0;
-                    let reviews = 0;
-                    const starText = txt('.F7nice span[aria-hidden="true"]');
-                    if (starText) rating = parseFloat(starText.replace(',', '.')) || 0;
-                    root.querySelectorAll('.F7nice [aria-label]').forEach(el => {
-                        const lbl = el.getAttribute('aria-label') || '';
-                        const rm = lbl.match(/(\\d+(?:[.,\\s]\\d{3})*)\\s*(?:ulasan|reviews?|penilaian)/i);
-                        if (rm && !reviews) reviews = parseInt(rm[1].replace(/[.,\\s]/g, ''), 10) || 0;
-                    });
-
-                    const href = window.location.href;
-                    const coordMatch = [...href.matchAll(/!3d(-?\\d+(?:\\.\\d+)?)!4d(-?\\d+(?:\\.\\d+)?)/g)].at(-1);
-                    const lat = coordMatch ? parseFloat(coordMatch[1]) : null;
-                    const lng = coordMatch ? parseFloat(coordMatch[2]) : null;
-
-                    return {
-                        name: (h1.innerText || '').trim(),
-                        category: txt('button.DkEaL') || 'Bisnis',
-                        address: txt('button[data-item-id="address"]').replace(/^(Alamat|Address):\\s*/i, ''),
-                        phone: rawPhone,
-                        whatsapp: waPhone,
-                        website: website,
-                        opening_hours: txt('[data-item-id="oh"], button[jsaction*="pane.openhours"]').replace(/\\s+/g, ' ').trim(),
-                        rating,
-                        reviews_count: reviews,
-                        lat,
-                        lng,
-                        google_maps_url: href,
-                        source: 'local_headless',
-                        source_type: 'google_maps',
-                        source_name: 'Chrome Mesin Lokal'
-                    };
-                })()`
-            });
-
-            const place = profileRes.result?.value;
+            const place = await extractOpenPlaceDetail();
             if (place && place.name) {
                 savePlaceIncrementally(place);
             }

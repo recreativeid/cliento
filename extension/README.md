@@ -1,23 +1,18 @@
-# cliento Google Maps Scraper 1.5.0
+# cliento Google Maps Scraper 1.6.0
 
 Ekstensi mengambil informasi yang tampil di Google Maps setelah pengguna
-mengeklik **Mulai scraping**. Rekap dapat diunduh sebagai JSON dan diimpor ke
-cliento untuk disimpan dalam riwayat, ditampilkan dalam tabel, dan diekspor
-ke Excel. Ekstensi tidak memerlukan Google Places API.
+mengeklik **Mulai scraping**. Mulai v1.6.0, hasil dapat langsung dikirim
+otomatis ke tab cliento (`localhost` atau `recreativeid.github.io`) maupun
+diunduh sebagai JSON cadangan untuk diekspor ke Excel. Ekstensi tidak memerlukan Google Places API.
 
 1. Buka `chrome://extensions`, aktifkan **Developer mode**, lalu **Load unpacked**
    folder `C:\xampp\htdocs\Client_Reach_ai\extension`.
-   Jika sudah terpasang, klik **Reload** agar memakai versi 1.5.0.
-2. Muat ulang tab Google Maps (`www.google.com/maps` atau `www.google.co.id/maps`).
+   Jika sudah terpasang versi lama, klik **Reload** agar memakai versi 1.6.0.
+2. Muat ulang tab cliento dan tab Google Maps (`www.google.com/maps` atau `www.google.co.id/maps`).
 3. Cari jenis bisnis dan wilayah yang diinginkan, misalnya `klinik Magelang`.
-4. Atur batas 1–100 hasil per proses (default 30), lalu klik **Mulai scraping**
-   pada panel cliento. Opsi detail membuka profil satu per satu untuk
-   membaca kontak, website, kategori dan jam yang ditampilkan. Opsi gulir memuat
-   hasil berikutnya dari pencarian yang sama, maksimal 20 kali gulir.
-5. Klik **Hentikan** kapan saja. Hasil yang sudah terkumpul tetap tersedia.
-   Untuk satu bisnis, buka profilnya lalu **Ambil profil yang terbuka**.
-6. Klik **Unduh rekap JSON**. Di aplikasi cliento, buka **Impor Google Maps**,
-   pilih file tersebut, periksa jumlah record, lalu klik tombol impor.
+4. Atur batas 1–100 hasil per proses (default 30), pastikan **Kirim otomatis ke tab cliento**
+   aktif jika ingin sinkron instan, lalu klik **Mulai scraping**.
+5. Klik **Hentikan** kapan saja, atau **Kirim ke Tab cliento** / **Unduh rekap JSON** untuk impor manual.
 
 Rekap menggabungkan bisnis berdasarkan identitas URL Maps; mengambil bisnis yang
 sama kembali memperbarui datanya. Rekap disimpan dalam memori tab dan hilang jika

@@ -1124,11 +1124,98 @@ const ScraperClient = {
             });
 
             btnPreset.addEventListener('click', () => {
-                this.currentQuery.targetMode = 'preset';
+                this.setTargetInputMode('search');
                 if (keywordInput) keywordInput.value = '';
                 this.applyPresetFilter();
                 this.updateTargetSummaryDisplay();
             });
+        }
+
+        const btnUrlBatch = document.getElementById('btn-toggle-url-batch');
+        const urlInput = document.getElementById('gmaps-url-batch-input');
+        if (btnUrlBatch) {
+            btnUrlBatch.addEventListener('click', () => this.setTargetInputMode('url_batch'));
+        }
+        if (urlInput) {
+            urlInput.addEventListener('input', () => this.updateUrlBatchCounter());
+        }
+    },
+
+    parseGoogleMapsUrls(rawText) {
+        const lines = String(rawText || '').split(/[\r\n,]+/);
+        const urls = [];
+        const seen = new Set();
+        for (const raw of lines) {
+            const line = raw.trim();
+            if (!line) continue;
+            try {
+                const parsed = new URL(line);
+                if (!['http:', 'https:'].includes(parsed.protocol)) continue;
+                const host = parsed.hostname.toLowerCase();
+                const isMaps = /^(?:www\.|maps\.)?google\.(com|co\.id)$/.test(host) || host === 'maps.app.goo.gl' || host === 'goo.gl';
+                if (!isMaps || seen.has(parsed.href)) continue;
+                seen.add(parsed.href);
+                urls.push(parsed.href);
+            } catch (_) {}
+        }
+        return urls;
+    },
+
+    updateUrlBatchCounter() {
+        const input = document.getElementById('gmaps-url-batch-input');
+        const badge = document.getElementById('gmaps-url-batch-count');
+        const summaryEl = document.getElementById('summary-active-target');
+        const urls = this.parseGoogleMapsUrls(input?.value || '');
+        if (badge) {
+            badge.textContent = `${urls.length} link valid`;
+            badge.className = urls.length > 0 ? 'badge badge-green' : 'badge badge-blue';
+        }
+        if (this.currentQuery.targetMode === 'url_batch' && summaryEl) {
+            summaryEl.textContent = `Ekstrak Langsung ${urls.length} Link Google Maps (Ala Amapulse)`;
+        }
+        return urls;
+    },
+
+    setTargetInputMode(mode) {
+        const btnPreset = document.getElementById('btn-toggle-preset');
+        const btnUrl = document.getElementById('btn-toggle-url-batch');
+        const boxPreset = document.getElementById('target-preset-box');
+        const boxUrls = document.getElementById('target-urls-box');
+        const wilayahSec = document.getElementById('step-wilayah-section');
+        const btnLabel = document.getElementById('main-execute-btn-label');
+
+        if (mode === 'url_batch') {
+            this.currentQuery.targetMode = 'url_batch';
+            if (boxPreset) boxPreset.style.display = 'none';
+            if (boxUrls) boxUrls.style.display = 'block';
+            if (btnPreset) btnPreset.classList.remove('active');
+            if (btnUrl) btnUrl.classList.add('active');
+            if (wilayahSec) {
+                wilayahSec.style.opacity = '0.45';
+                wilayahSec.style.pointerEvents = 'none';
+            }
+            if (btnLabel) btnLabel.textContent = 'Ekstrak Data Semua Link (Ala Amapulse)';
+            this.updateUrlBatchCounter();
+        } else {
+            this.currentQuery.targetMode = (document.getElementById('target-keyword-input')?.value?.trim()) ? 'keyword' : 'preset';
+            if (boxPreset) boxPreset.style.display = 'block';
+            if (boxUrls) boxUrls.style.display = 'none';
+            if (btnPreset) btnPreset.classList.add('active');
+            if (btnUrl) btnUrl.classList.remove('active');
+            if (wilayahSec) {
+                wilayahSec.style.opacity = '1';
+                wilayahSec.style.pointerEvents = 'auto';
+            }
+            const checkedEngine = document.querySelector('input[name="scrape_engine"]:checked')?.value || 'hybrid';
+            const labelMap = {
+                hybrid: 'Mulai Cari Leads (Maps + Sosmed WA)',
+                cloud: 'Mulai Ekstraksi Cloud API Estafet',
+                local: 'Jalankan Mesin Lokal Chrome Laptop',
+                dorking: 'Buru Nomor WA Sosmed Saja',
+                extension: 'Buka Google Maps & Siapkan Ekstensi'
+            };
+            if (btnLabel) btnLabel.textContent = labelMap[checkedEngine] || labelMap.hybrid;
+            this.updateTargetSummaryDisplay();
         }
     },
 
@@ -3354,10 +3441,16 @@ const ScraperClient = {
         }
         this.refreshEngineDiagnostics();
 
+        this.initExtensionBridge();
+
         // Satu Tombol Utama Ekstraksi Prospek (Default: Otomatis Hybrid Maps + Sosmed WA)
         const btnMainExecute = document.getElementById('btn-main-execute-scrape');
         if (btnMainExecute) {
             btnMainExecute.addEventListener('click', () => {
+                if (this.currentQuery.targetMode === 'url_batch') {
+                    this.executeUrlBatchScrape();
+                    return;
+                }
                 const engine = document.querySelector('input[name="scrape_engine"]:checked')?.value || 'hybrid';
                 if (engine === 'hybrid') {
                     this.executeHybridScrape();
@@ -3577,9 +3670,10 @@ const ScraperClient = {
     },
 
     isStaticHost() {
-        return window.location.hostname.includes('github.io') ||
-               window.location.protocol === 'file:' ||
-               window.location.hostname === '';
+        if (typeof window === 'undefined' || !window.location) return false;
+        const host = window.location.hostname || '';
+        const proto = window.location.protocol || '';
+        return host.includes('github.io') || proto === 'file:';
     },
 
     async safeFetchJson(url, options = {}) {
@@ -3868,8 +3962,11 @@ const ScraperClient = {
         const msgEl = document.getElementById('engine-status-msg');
         if (msgEl) {
             const btnWrap = document.createElement('div');
-            btnWrap.style.marginTop = '8px';
-            btnWrap.innerHTML = `<button type="button" id="btn-fallback-open-ext" class="btn btn-primary btn-sm" style="font-size:0.72rem;padding:6px 10px;">🌐 Buka Google Maps Asli (Pakai Ekstensi Chrome)</button>`;
+            btnWrap.style.cssText = 'margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;';
+            btnWrap.innerHTML = `
+              <button type="button" id="btn-fallback-open-ext" class="btn btn-primary btn-sm" style="font-size:0.72rem;padding:6px 10px;">🌐 Buka Google Maps Asli (Pakai Ekstensi Chrome)</button>
+              <button type="button" id="btn-fallback-pull-ext" class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:6px 10px;">📥 Tarik / Impor Hasil Ekstensi</button>
+            `;
             msgEl.appendChild(btnWrap);
             const btn = document.getElementById('btn-fallback-open-ext');
             if (btn) btn.addEventListener('click', () => {
@@ -3878,6 +3975,143 @@ const ScraperClient = {
                 if (extBox) extBox.style.display = 'block';
                 this.launchGoogleMapsAutoScrape();
             });
+            const btnPull = document.getElementById('btn-fallback-pull-ext');
+            if (btnPull) btnPull.addEventListener('click', () => {
+                document.getElementById('advanced-engine-details')?.setAttribute('open', 'true');
+                const extBox = document.getElementById('extension-manual-box');
+                if (extBox) extBox.style.display = 'block';
+                if (typeof window.postMessage === 'function') {
+                    window.postMessage({ type: 'CLIENTO_REQUEST_LATEST_CAPTURE' }, window.location.origin);
+                }
+                document.getElementById('extension-manual-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        }
+    },
+
+    initExtensionBridge() {
+        if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+        const btnPull = document.getElementById('btn-pull-extension-latest');
+        if (btnPull) {
+            btnPull.addEventListener('click', () => {
+                if (typeof window.postMessage === 'function') {
+                    window.postMessage({ type: 'CLIENTO_REQUEST_LATEST_CAPTURE' }, window.location.origin);
+                }
+            });
+        }
+
+        if (this._extBridgeBound) return;
+        this._extBridgeBound = true;
+
+        window.addEventListener('message', async (event) => {
+            if (event.source !== window) return;
+            const msg = event.data;
+            if (!msg || msg.source !== 'cliento_ext_bridge') return;
+
+            if (msg.type === 'CLIENTO_EXTENSION_READY') {
+                this.extensionBridgeReady = true;
+                const stEl = document.getElementById('extension-bridge-status');
+                if (stEl) {
+                    stEl.style.background = '#ecfdf5';
+                    stEl.style.borderColor = '#a7f3d0';
+                    stEl.style.color = '#065f46';
+                    stEl.innerHTML = `✅ <strong>Ekstensi Chrome v${this.escapeText(msg.version || '1.6.0')} Aktif!</strong> Hasil <em>Mulai scraping</em> di Google Maps otomatis dikirim ke tab ini.`;
+                }
+            } else if (msg.type === 'CLIENTO_EXTENSION_CAPTURE' && msg.payload) {
+                const sentKey = msg.payload.sent_at || JSON.stringify(msg.payload.records?.slice(0, 2));
+                if (sentKey && this._lastImportedExtKey === sentKey) return;
+                this._lastImportedExtKey = sentKey;
+                try {
+                    await this.importExtensionPayload(msg.payload, { autoImported: true });
+                } catch (err) {
+                    if (this.showToast) this.showToast(err.message);
+                }
+            }
+        });
+
+        try {
+            if (typeof window.postMessage === 'function' && window.location?.origin && window.location.origin !== 'null') {
+                window.postMessage({ type: 'CLIENTO_PING_EXTENSION' }, window.location.origin);
+            }
+        } catch (_) {}
+    },
+
+    async executeUrlBatchScrape() {
+        const urlInput = document.getElementById('gmaps-url-batch-input');
+        const urls = this.parseGoogleMapsUrls(urlInput?.value || '');
+        if (!urls.length) {
+            this.setEngineStatus(
+                'Link Google Maps Belum Diisi',
+                'Tempel minimal 1 tautan Google Maps yang valid (misal <code>https://www.google.com/maps/place/...</code> atau <code>https://maps.app.goo.gl/...</code>) pada kotak di Langkah 1.',
+                'Periksa Link',
+                'badge-amber',
+                false
+            );
+            if (urlInput) urlInput.focus();
+            return;
+        }
+
+        if (this.isStaticHost()) {
+            this.setEngineStatus(
+                'Batch Link (Ala Amapulse) Butuh XAMPP Localhost',
+                `Terdeteksi <strong>${urls.length} link Google Maps</strong>, namun halaman <code>github.io</code> tidak dapat mengendalikan Chrome lokal. Buka melalui <code>http://localhost/Client_Reach_ai/</code> (XAMPP) agar semua link diekstrak otomatis 1 klik.`,
+                'Buka di Localhost',
+                'badge-red',
+                false
+            );
+            return;
+        }
+
+        this.setEngineStatus(
+            `Mengekstrak ${urls.length} Link Google Maps (Ala Amapulse)`,
+            'Membuka Chrome CDP latar belakang, mengunjungi tiap tautan, dan melakukan auto-save per tempat...',
+            'Berjalan',
+            'badge-blue',
+            true,
+            10
+        );
+
+        try {
+            const startRes = await this.safeFetchJson('api/scraper.php?action=run_url_batch_scrape', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ urls, headless: true })
+            });
+            if (!startRes.success) {
+                throw new Error(startRes.message || 'Gagal memulai batch link Chrome lokal');
+            }
+
+            const out = await this.pollLocalScraper(`Batch Link (${urls.length} URL)`, 'Sesuai Tautan Maps', urls.length, false, (ev) => {
+                this.renderTelemetryMatrix([{
+                    name: '🔗 Batch Link Chrome CDP (Ala Amapulse)',
+                    stateLabel: ev.phase === 'captcha' ? 'CAPTCHA 45s' : 'BERJALAN',
+                    tone: ev.phase === 'captcha' ? 'warn' : 'running',
+                    detail: `Terekstrak & auto-save ${ev.count || 0}/${urls.length} tempat dari link yang ditempel.`
+                }]);
+            });
+
+            if (out.places && out.places.length > 0) {
+                this.setEngineStatus(
+                    `Selesai! ${out.places.length} Data Link Terambil`,
+                    `Berhasil mengekstrak data asli dari ${out.places.length}/${urls.length} link Google Maps yang ditempel.`,
+                    'Selesai',
+                    'badge-green',
+                    true,
+                    100
+                );
+                setTimeout(() => {
+                    this.showScrapedResultsPage(out.places, `Batch ${out.places.length} Link Maps`, 'Sesuai Link');
+                }, 400);
+            } else {
+                this.setEngineStatus(
+                    'Belum Ada Tempat Berhasil Diekstrak',
+                    out.error || 'Pastikan tautan mengarah langsung ke profil tempat / hasil Google Maps.',
+                    'Kosong',
+                    'badge-amber',
+                    false
+                );
+            }
+        } catch (err) {
+            this.setEngineStatus('Gagal Ekstrak Batch Link', err.message, 'Error', 'badge-red', false);
         }
     },
 
@@ -4420,6 +4654,114 @@ const ScraperClient = {
         };
     },
 
+    validateExtensionPayload(documentData) {
+        if (!documentData || !Array.isArray(documentData.records) || documentData.records.length < 1 || documentData.records.length > 500) {
+            throw new Error('JSON harus berisi records sebanyak 1–500 data.');
+        }
+        const isMaps = documentData.records.every(record => {
+            if (!record || !['google_maps_extension', 'browser_manual'].includes(record.source_type || documentData.source?.source_type)) return false;
+            try {
+                const url = new URL(record.source_url || documentData.source?.source_url || '');
+                return url.protocol === 'https:' && ['google.com', 'www.google.com', 'maps.google.com', 'google.co.id', 'www.google.co.id', 'maps.google.co.id'].includes(url.hostname) && !url.username && !url.password && (!url.port || url.port === '443');
+            } catch (_) { return false; }
+        });
+        if (!isMaps) throw new Error('Pilih JSON hasil Google Maps dari ekstensi cliento.');
+        return documentData;
+    },
+
+    normalizeExtensionRecordsClient(documentData) {
+        const defaultSource = documentData.source || {};
+        const fallbackLoc = documentData.context?.location_name || 'sesuai pencarian';
+        return (documentData.records || []).map((rec, idx) => {
+            const sourceUrl = rec.source_url || defaultSource.source_url || '';
+            const sourceName = rec.source_name || defaultSource.source_name || 'Google Maps (Chrome)';
+            const sourceType = rec.source_type || defaultSource.source_type || 'google_maps_extension';
+            const usageBasis = rec.usage_basis || defaultSource.usage_basis || 'Pengambilan data publik Google Maps dimulai pengguna';
+            const hasRating = Number.isFinite(Number(rec.rating)) && Number(rec.rating) > 0;
+            const hasReviews = Number.isInteger(rec.reviews_count) && rec.reviews_count >= 0;
+            return {
+                id: idx + 1,
+                name: rec.name || '-',
+                category: rec.category || documentData.context?.target_category || 'Bisnis',
+                address: rec.address || fallbackLoc,
+                phone: rec.phone || '',
+                whatsapp: rec.whatsapp || '',
+                website: rec.website || '',
+                social_media: rec.website || '',
+                opening_hours: rec.opening_hours || '',
+                rating: hasRating ? Number(rec.rating) : 0,
+                reviews_count: hasReviews ? rec.reviews_count : 0,
+                lat: rec.lat ?? null,
+                lng: rec.lng ?? null,
+                source_type: sourceType,
+                source_name: sourceName,
+                insights: {
+                    provenance: {
+                        source_name: sourceName,
+                        source_type: sourceType,
+                        source_url: sourceUrl,
+                        usage_basis: usageBasis,
+                        observed_at: rec.observed_at || documentData.sent_at || ''
+                    },
+                    metrics: {
+                        rating_available: hasRating,
+                        reviews_count_available: hasReviews
+                    },
+                    contact: {
+                        phone_listed: Boolean(rec.phone),
+                        whatsapp_listed: Boolean(rec.whatsapp),
+                        website_listed: Boolean(rec.website)
+                    }
+                }
+            };
+        });
+    },
+
+    async importExtensionPayload(documentData, options = {}) {
+        this.validateExtensionPayload(documentData);
+        const status = document.getElementById('public-source-status');
+        let items = null;
+
+        if (!this.isStaticHost()) {
+            const response = await fetch('api/source_import.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(documentData)
+            });
+            let data = null;
+            try { data = await response.json(); } catch (_) {}
+
+            if (response.ok && data && data.success) {
+                items = data.items;
+                if (status) status.textContent = data.items.length + ' record tersimpan dengan atribusi sumber.';
+            } else if (response.status === 401 || response.status === 404 || response.status >= 500) {
+                items = this.normalizeExtensionRecordsClient(documentData);
+                if (status) status.textContent = items.length + ' record dimuat ke tabel & siap Export Excel (mode browser lokal karena DB belum login/offline).';
+            } else {
+                throw new Error(data?.message || 'Impor gagal.');
+            }
+        } else {
+            items = this.normalizeExtensionRecordsClient(documentData);
+            if (status) status.textContent = items.length + ' record dimuat dari Ekstensi Chrome (siap Export Excel).';
+        }
+
+        this.scrapedResults = items;
+        this.currentQuery.category = documentData.context?.target_category || 'Google Maps';
+        this.currentQuery.location = documentData.context?.location_name || 'sesuai pencarian';
+        this.activeFilter = 'all';
+        this.renderScrapedResultsTable();
+        const setupEl = document.getElementById('scraper-setup-view');
+        const resultsEl = document.getElementById('scraped-results-view');
+        if (setupEl) setupEl.style.display = 'none';
+        if (resultsEl) resultsEl.style.display = 'block';
+        if (typeof window !== 'undefined' && window.DataManager) window.DataManager.loadTreeData();
+        if (typeof window !== 'undefined' && window.App) window.App.refreshDashboardStats();
+        if (options.autoImported && this.showToast) {
+            this.showToast(`✅ ${items.length} data Google Maps otomatis masuk dari Ekstensi Chrome!`);
+        }
+        return items;
+    },
+
     bindSourceImport() {
         const input = document.getElementById('public-source-file');
         const button = document.getElementById('btn-import-public-source');
@@ -4433,15 +4775,7 @@ const ScraperClient = {
             try {
                 if (file.size > 2 * 1024 * 1024) throw new Error('Ukuran file maksimal 2 MB.');
                 const documentData = JSON.parse(await file.text());
-                if (!Array.isArray(documentData.records) || documentData.records.length < 1 || documentData.records.length > 500) throw new Error('JSON harus berisi records sebanyak 1–500 data.');
-                const isMaps = documentData.records.every(record => {
-                    if (!record || !['google_maps_extension', 'browser_manual'].includes(record.source_type || documentData.source?.source_type)) return false;
-                    try {
-                        const url = new URL(record.source_url || documentData.source?.source_url || '');
-                        return url.protocol === 'https:' && ['google.com', 'www.google.com', 'maps.google.com', 'google.co.id', 'www.google.co.id', 'maps.google.co.id'].includes(url.hostname) && !url.username && !url.password && (!url.port || url.port === '443');
-                    } catch (_) { return false; }
-                });
-                if (!isMaps) throw new Error('Pilih JSON hasil Google Maps dari ekstensi cliento.');
+                this.validateExtensionPayload(documentData);
                 pending = documentData; status.textContent = documentData.records.length + ' record siap diimpor.'; button.disabled = false;
             } catch (error) { status.textContent = error.message; }
         });
@@ -4449,15 +4783,8 @@ const ScraperClient = {
             if (!pending) return;
             button.disabled = true; status.textContent = 'Menyimpan data dan atribusi sumber...';
             try {
-                const response = await fetch('api/source_import.php', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(pending)});
-                const data = await response.json();
-                if (!response.ok || !data.success) throw new Error(data.message || 'Impor gagal.');
-                this.scrapedResults = data.items; this.currentQuery.category = pending.context?.target_category || 'Google Maps'; this.currentQuery.location = pending.context?.location_name || 'sesuai pencarian'; this.activeFilter = 'all';
-                this.renderScrapedResultsTable();
-                document.getElementById('scraper-setup-view').style.display = 'none'; document.getElementById('scraped-results-view').style.display = 'block';
-                pending = null; input.value = ''; status.textContent = data.items.length + ' record tersimpan dengan atribusi sumber.';
-                if (window.DataManager) window.DataManager.loadTreeData();
-                if (window.App) window.App.refreshDashboardStats();
+                await this.importExtensionPayload(pending);
+                pending = null; input.value = '';
             } catch (error) { status.textContent = error.message; button.disabled = false; }
         });
     },

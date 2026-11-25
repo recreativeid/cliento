@@ -487,15 +487,27 @@
               </button>
             </div>
 
-            <!-- LANGKAH 1: TARGET USAHA DULU (KATEGORI & KEYWORD TERPADU, TANPA (0)) -->
+            <!-- LANGKAH 1: TARGET USAHA DULU (KATEGORI & KEYWORD ATAU LINK GMAPS ALA AMAPULSE) -->
             <div style="margin-bottom: 14px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; gap: 6px; flex-wrap: wrap;">
                 <div style="font-size: 0.68rem; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px;">
                   Langkah 1 · Mau Cari Bisnis Apa?
                 </div>
-                <div class="target-mode-toggle" style="display: none;">
-                  <button type="button" class="target-toggle-btn active" id="btn-toggle-preset">Pilih Kategori</button>
-                  <button type="button" class="target-toggle-btn" id="btn-toggle-keyword">Cari Keyword</button>
+                <div class="target-mode-toggle" style="display: inline-flex; gap: 3px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                  <button type="button" class="target-toggle-btn active" id="btn-toggle-preset" style="font-size: 0.63rem; padding: 3px 7px;">🎯 Kategori / Keyword</button>
+                  <button type="button" class="target-toggle-btn" id="btn-toggle-url-batch" style="font-size: 0.63rem; padding: 3px 7px;">🔗 Link Gmaps (Amapulse)</button>
+                  <button type="button" class="target-toggle-btn" id="btn-toggle-keyword" style="display: none;">Cari Keyword</button>
+                </div>
+              </div>
+
+              <div id="target-urls-box" style="display: none; background: #ffffff; border: 1.5px solid #2563eb; border-radius: 8px; padding: 10px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+                  <span style="font-size: 0.68rem; font-weight: 700; color: #1e40af;"><i class="fa-solid fa-link"></i> Tempel Link Google Maps (Ala Amapulse)</span>
+                  <span id="gmaps-url-batch-count" class="badge badge-blue" style="font-size: 0.60rem;">0 link valid</span>
+                </div>
+                <textarea id="gmaps-url-batch-input" class="form-input" rows="4" style="width: 100%; font-size: 0.71rem; line-height: 1.45; resize: vertical; font-family: inherit;" placeholder="Tempel 1 atau banyak link Google Maps (1 baris = 1 link):&#10;https://www.google.com/maps/place/...&#10;https://maps.app.goo.gl/..."></textarea>
+                <div style="font-size: 0.62rem; color: #64748b; margin-top: 5px; line-height: 1.35;">
+                  Otomatis mengambil Nama, HP/WA, Alamat, Website, Rating, Ulasan, Jam Buka &amp; Koordinat per link lewat Chrome lokal.
                 </div>
               </div>
 
@@ -560,7 +572,7 @@
             </div>
 
             <!-- LANGKAH 2: PILIH WILAYAH TARGET -->
-            <div style="margin-bottom: 14px;">
+            <div id="step-wilayah-section" style="margin-bottom: 14px;">
               <div style="font-size: 0.68rem; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
                 Langkah 2 · Di Wilayah Mana?
               </div>
@@ -740,8 +752,16 @@
                       <i class="fa-solid fa-arrow-up-right-from-square"></i> Buka Maps
                     </a>
                   </div>
+                  <div id="extension-bridge-status" style="font-size: 0.65rem; padding: 5px 8px; border-radius: 6px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; margin-bottom: 6px; line-height: 1.35;">
+                    Ekstensi Chrome v1.6.0 belum terdeteksi. Pasang folder <code>extension</code> di <code>chrome://extensions</code> (Load unpacked), lalu muat ulang halaman.
+                  </div>
+                  <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                    <button type="button" id="btn-pull-extension-latest" class="btn btn-outline btn-sm" style="padding: 5px 8px; font-size: 0.67rem; font-weight: 600; flex: 1;">
+                      🔄 Tarik Data Terakhir Ekstensi
+                    </button>
+                  </div>
                   <p style="font-size: 0.68rem; color: #64748b; margin-bottom: 8px; line-height: 1.35;">
-                    Buka Google Maps, klik <em>Mulai scraping</em> pada ekstensi, unduh rekap JSON, lalu impor file tersebut di bawah ini:
+                    Saat klik <em>Mulai scraping</em> di Google Maps selesai, data akan dikirim otomatis ke sini. Atau unduh rekap JSON dan unggah manual:
                   </p>
                   <label for="public-source-file" style="font-size: 0.68rem; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Pilih File JSON Hasil Ekstensi:</label>
                   <input id="public-source-file" type="file" accept=".json,application/json" style="display: block; width: 100%; font-size: 0.70rem; margin-bottom: 6px;">

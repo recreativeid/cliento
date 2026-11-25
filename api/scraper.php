@@ -11,7 +11,7 @@ $action = $_GET['action'] ?? ($jsonInput['action'] ?? ($_POST['action'] ?? 'prev
 
 $statelessActions = [
     'engine_diagnostics', 'cloud_status', 'cloud_scrape',
-    'dork_hunt', 'run_local_scrape', 'local_scrape_status',
+    'dork_hunt', 'run_local_scrape', 'run_url_batch_scrape', 'local_scrape_status',
     'google_places_status', 'open_source_catalog', 'suggest'
 ];
 if (in_array($action, $statelessActions, true) && !defined('SKIP_DB_CONNECT')) {
@@ -187,6 +187,40 @@ if ($action === 'dork_hunt') {
     jsonResponse($res);
 }
 
+function scraperLaunchLocalNode($runtime, $queryLabel, $limit, $extraArgs = []) {
+    $storageDir = __DIR__ . '/../storage';
+    if (!is_dir($storageDir)) @mkdir($storageDir, 0775, true);
+    @unlink($storageDir . '/local_scrape_failover.json');
+    @file_put_contents($storageDir . '/local_scrape_progress.json', json_encode([
+        'query' => $queryLabel,
+        'target_limit' => $limit,
+        'collected_count' => 0,
+        'status' => 'starting_browser',
+        'captcha_prompt' => false,
+        'updated_at' => date('c'),
+        'places' => []
+    ], JSON_PRETTY_PRINT));
+
+    $nodeBinEsc = escapeshellarg($runtime['node_bin']);
+    $nodeScript = escapeshellarg(__DIR__ . '/../scripts/local_headless_scraper.js');
+    $logFile = (realpath($storageDir) ?: $storageDir) . DIRECTORY_SEPARATOR . 'local_scrape.log';
+    @file_put_contents($logFile, '');
+    $logEsc = escapeshellarg($logFile);
+
+    $cmdParts = [$nodeBinEsc, $nodeScript, '--query=' . escapeshellarg($queryLabel), '--limit=' . (int)$limit];
+    foreach ($extraArgs as $arg) {
+        $cmdParts[] = $arg;
+    }
+    $cmd = implode(' ', $cmdParts);
+
+    if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+        $winCmd = 'start "" /B cmd /c "' . $cmd . ' > ' . $logEsc . ' 2>&1"';
+        pclose(popen($winCmd, 'r'));
+    } else {
+        pclose(popen($cmd . ' > ' . $logEsc . ' 2>&1 &', 'r'));
+    }
+}
+
 // 0c. Local Chrome Engine with Incremental Auto-Save and 45s CAPTCHA Popup
 if ($action === 'run_local_scrape') {
     $q = trim($_GET['query'] ?? ($jsonInput['query'] ?? ($_POST['query'] ?? '')));
@@ -209,39 +243,75 @@ if ($action === 'run_local_scrape') {
         ], 400);
     }
 
-    // Reset stale progress & failover files BEFORE spawning Node so polling always reads the fresh run!
-    $storageDir = __DIR__ . '/../storage';
-    if (!is_dir($storageDir)) @mkdir($storageDir, 0775, true);
-    @unlink($storageDir . '/local_scrape_failover.json');
-    @file_put_contents($storageDir . '/local_scrape_progress.json', json_encode([
-        'query' => $q,
-        'target_limit' => $limit,
-        'collected_count' => 0,
-        'status' => 'starting_browser',
-        'captcha_prompt' => false,
-        'updated_at' => date('c'),
-        'places' => []
-    ], JSON_PRETTY_PRINT));
-
-    $nodeBinEsc = escapeshellarg($runtime['node_bin']);
-    $nodeScript = escapeshellarg(__DIR__ . '/../scripts/local_headless_scraper.js');
-    $logFile = realpath($storageDir) . DIRECTORY_SEPARATOR . 'local_scrape.log';
-    @file_put_contents($logFile, '');
-    $logEsc = escapeshellarg($logFile);
-    $cmd = $nodeBinEsc . ' ' . $nodeScript . ' --query=' . escapeshellarg($q) . ' --limit=' . $limit . ' --headless=' . ($headless ? 'true' : 'false');
-
-    if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-        $winCmd = 'start "" /B cmd /c "' . $cmd . ' > ' . $logEsc . ' 2>&1"';
-        pclose(popen($winCmd, 'r'));
-    } else {
-        pclose(popen($cmd . ' > ' . $logEsc . ' 2>&1 &', 'r'));
-    }
+    scraperLaunchLocalNode($runtime, $q, $limit, ['--headless=' . ($headless ? 'true' : 'false')]);
 
     jsonResponse([
         'success' => true,
         'message' => 'Mesin lokal Chrome berhasil dimulai di latar belakang laptop Anda.',
         'query' => $q,
         'limit' => $limit
+    ]);
+}
+
+// 0d. Batch Link Google Maps Extractor (Ala Amapulse / ImportFromWeb)
+if ($action === 'run_url_batch_scrape') {
+    $rawUrls = $jsonInput['urls'] ?? ($_POST['urls'] ?? []);
+    if (is_string($rawUrls)) {
+        $rawUrls = preg_split('/[\r\n,]+/', $rawUrls);
+    }
+    if (!is_array($rawUrls)) $rawUrls = [];
+
+    $validUrls = [];
+    $seen = [];
+    foreach ($rawUrls as $u) {
+        $u = trim((string)$u);
+        if (!preg_match('~^https?://~i', $u)) continue;
+        $host = strtolower((string)parse_url($u, PHP_URL_HOST));
+        $isMapsHost = (
+            preg_match('/^(?:www\.|maps\.)?google\.(com|co\.id)$/', $host) ||
+            $host === 'maps.app.goo.gl' ||
+            $host === 'goo.gl'
+        );
+        if (!$isMapsHost || isset($seen[$u])) continue;
+        $seen[$u] = true;
+        $validUrls[] = $u;
+        if (count($validUrls) >= 100) break;
+    }
+
+    if (empty($validUrls)) {
+        jsonResponse([
+            'success' => false,
+            'message' => 'Masukkan minimal 1 tautan Google Maps yang valid (google.com/maps atau maps.app.goo.gl).'
+        ], 400);
+    }
+
+    $runtime = scraperDetectLocalRuntime();
+    if (!$runtime['ready']) {
+        $why = !$runtime['node_found'] ? 'Node.js tidak ditemukan di komputer server.' : (!$runtime['chrome_found'] ? 'Google Chrome / Edge tidak ditemukan.' : 'Script scraper lokal tidak ditemukan.');
+        jsonResponse([
+            'success' => false,
+            'message' => 'Ekstrak Batch Link membutuhkan Mesin Lokal Chrome: ' . $why,
+            'runtime' => $runtime
+        ], 400);
+    }
+
+    $storageDir = __DIR__ . '/../storage';
+    if (!is_dir($storageDir)) @mkdir($storageDir, 0775, true);
+    $batchFile = (realpath($storageDir) ?: $storageDir) . DIRECTORY_SEPARATOR . 'local_url_batch.json';
+    file_put_contents($batchFile, json_encode(['urls' => $validUrls], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+    $headless = (bool)($jsonInput['headless'] ?? ($_POST['headless'] ?? true));
+    $label = 'Batch Link Google Maps (' . count($validUrls) . ' URL)';
+    scraperLaunchLocalNode($runtime, $label, count($validUrls), [
+        escapeshellarg('--urls-file=' . $batchFile),
+        '--headless=' . ($headless ? 'true' : 'false')
+    ]);
+
+    jsonResponse([
+        'success' => true,
+        'message' => 'Mengekstrak ' . count($validUrls) . ' tautan Google Maps secara otomatis di latar belakang...',
+        'query' => $label,
+        'limit' => count($validUrls)
     ]);
 }
 

@@ -35,12 +35,14 @@ assert.ok(indexHtml.includes('id="tile-engine-hybrid"') && indexHtml.includes('v
 assert.equal(scraperJs.includes('generateStaticHostLeads'), false, 'scraper.js must NEVER include fake generateStaticHostLeads generator!');
 assert.equal(scraperJs.includes('0812-28'), false, 'scraper.js must NEVER synthesize fake 0812 phone numbers!');
 
-// 4. Verify backend contracts: engine_diagnostics, Google Places positional call, and Local Chrome real detail extraction
+// 4. Verify backend contracts: engine_diagnostics, Google Places positional call, URL batch, and Local Chrome real detail extraction
 assert.ok(scraperPhp.includes("action === 'engine_diagnostics'"), 'api/scraper.php must expose engine_diagnostics endpoint');
+assert.ok(scraperPhp.includes("action === 'run_url_batch_scrape'"), 'api/scraper.php must expose Amapulse-style run_url_batch_scrape endpoint');
 assert.ok(scraperPhp.includes("start \"\" /B "), 'api/scraper.php Windows popen must quote empty title cleanly');
 assert.ok(cloudScraperPhp.includes('googlePlacesSearch($cat, $loc, $lat, $lng'), 'api/cloud_scraper.php must pass positional args to googlePlacesSearch');
 assert.ok(cloudScraperPhp.includes("'attempt_log' =>"), 'api/cloud_scraper.php must report attempt_log per provider');
 assert.ok(localJs.includes('button[data-item-id^="phone:tel:"]'), 'local_headless_scraper.js must inspect detail pane phone selector');
+assert.ok(localJs.includes("getArg('urls-file'"), 'local_headless_scraper.js must support --urls-file batch mode');
 assert.ok(localJs.includes('failover_to_api'), 'local_headless_scraper.js must preserve 45s failover_to_api');
 
 // 5. Evaluate ScraperClient in VM to verify static host refusal, Hybrid Merge separation, and clean dropdowns
@@ -60,7 +62,7 @@ assert.equal(typeof client.renderTelemetryMatrix, 'function');
 
 // Running executeHybridScrape on static host must NEVER populate fake scrapedResults!
 client.scrapedResults = [];
-client.executeHybridScrape().then(() => {
+client.executeHybridScrape().then(async () => {
     assert.equal(client.scrapedResults.length, 0, 'Static host must NOT populate fake scrapedResults!');
 
     // mergeHybridLeads separation check with authentic-shaped sample records
@@ -80,7 +82,26 @@ client.executeHybridScrape().then(() => {
     assert.ok(!mockSectorSelect.options[0].textContent.includes('(0)'), 'Sector dropdown must omit (0) when unscanned');
     assert.ok(!mockCatSelect.options[0].textContent.includes('(0)'), 'Category dropdown must omit (0) when unscanned');
 
-    console.log('✓ All Honest Multi-Engine UI, Telemetry & No-Fake-Data tests passed successfully!');
+    // Amapulse-style Google Maps URL Batch parser & static-host Extension JSON import check
+    const parsedUrls = [...client.parseGoogleMapsUrls('https://www.google.com/maps/place/Test\nhttps://maps.app.goo.gl/abc123\nhttps://evil.example.com/maps/place/Bad\nhttps://maps.app.goo.gl/abc123')];
+    assert.deepEqual(parsedUrls, ['https://www.google.com/maps/place/Test', 'https://maps.app.goo.gl/abc123'], 'URL parser must allow only Google Maps links and dedupe cleanly');
+
+    await client.importExtensionPayload({
+        context: { target_category: 'Cafe', location_name: 'Magelang' },
+        records: [{
+            name: 'Cafe Nyata Ekstensi',
+            phone: '08123456789',
+            rating: 4.9,
+            reviews_count: 50,
+            source_type: 'google_maps_extension',
+            source_url: 'https://www.google.com/maps/place/Cafe+Nyata/data=!1sabc!3d-7.4!4d110.2'
+        }]
+    });
+    assert.equal(client.scrapedResults.length, 1, 'Extension JSON import must work even on static GitHub Pages host');
+    assert.equal(client.scrapedResults[0].name, 'Cafe Nyata Ekstensi');
+    assert.equal(client.scrapedResults[0].insights.metrics.rating_available, true);
+
+    console.log('✓ All Honest Multi-Engine UI, Telemetry, Amapulse URL Batch & Extension Bridge tests passed successfully!');
 }).catch(err => {
     console.error(err);
     process.exit(1);

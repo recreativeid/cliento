@@ -98,6 +98,7 @@
     </label>
     <label style="display:block;margin:8px 0"><input id="cr-details" type="checkbox" checked> Buka detail untuk kontak dan website</label>
     <label style="display:block;margin:8px 0"><input id="cr-scroll" type="checkbox" checked> Gulir daftar untuk memuat hasil berikutnya</label>
+    <label style="display:block;margin:8px 0"><input id="cr-autosend" type="checkbox" checked> Kirim otomatis ke tab cliento setelah selesai</label>
     <div style="display:flex;gap:6px;margin:10px 0">
       <button type="button" id="cr-start">Mulai scraping</button>
       <button type="button" id="cr-stop" disabled>Hentikan</button>
@@ -106,9 +107,12 @@
     <p id="cr-message" role="status">Belum ada data diambil. Proses dimulai hanya setelah klik Anda.</p>
     <p id="cr-summary">0 bisnis terkumpul.</p>
     <ol id="cr-preview" style="padding-left:20px"></ol>
-    <button type="button" id="cr-download" disabled>Unduh rekap JSON</button>
-    <button type="button" id="cr-clear" disabled>Hapus rekap</button>
-    <p style="font-size:11px;color:#64748b">Impor JSON di cliento untuk menyimpan riwayat, melihat tabel, dan mengekspor Excel. Kontak hanya diambil jika tercantum. CAPTCHA menghentikan proses.</p>`;
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+      <button type="button" id="cr-send" disabled style="background:#2563eb;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:600">Kirim ke Tab cliento</button>
+      <button type="button" id="cr-download" disabled>Unduh rekap JSON</button>
+      <button type="button" id="cr-clear" disabled>Hapus rekap</button>
+    </div>
+    <p style="font-size:11px;color:#64748b">Setelah selesai, hasil otomatis masuk ke tab cliento (atau klik Kirim ke Tab cliento / Unduh JSON). CAPTCHA menghentikan proses.</p>`;
   document.body.appendChild(panel);
   const control = id => panel.querySelector(`#cr-${id}`);
   const message = control('message');
@@ -132,6 +136,8 @@
     control('scroll').disabled = running;
     control('download').disabled = running || records.size === 0;
     control('clear').disabled = running || records.size === 0;
+    const sendBtn = control('send');
+    if (sendBtn) sendBtn.disabled = running || records.size === 0;
     const rows = Array.from(records.values());
     control('summary').textContent = `${rows.length} bisnis · ${rows.filter(row => row.phone).length} telepon · ${rows.filter(row => row.website).length} website`;
     control('preview').replaceChildren();
@@ -320,8 +326,11 @@
         if (!await pause(1400)) break;
       }
       if (!stopRequested) {
+        const autoSent = processed > 0 && control('autosend')?.checked && relayToClientoTab(false);
         message.textContent = processed
-          ? `Selesai: ${processed} hasil diproses. Unduh rekap JSON, lalu impor di cliento. Kontak yang tidak tampil tetap kosong.`
+          ? (autoSent
+              ? `Selesai: ${processed} data diambil dan dikirim otomatis ke tab cliento! (Cadangan: Unduh JSON).`
+              : `Selesai: ${processed} hasil diproses. Unduh rekap JSON, lalu impor di cliento. Kontak yang tidak tampil tetap kosong.`)
           : 'Tidak menemukan daftar bisnis. Buka hasil pencarian Maps atau gunakan Ambil profil yang terbuka.';
       }
     } catch (_) {
@@ -348,9 +357,34 @@
     message.textContent = 'Profil ditambahkan ke rekap. Anda bisa mengambil profil lain atau mengunduh JSON.';
   });
 
+  function buildPayload() {
+    return {
+      context: helpers.parseQueryContext(queryName || document.querySelector('#searchboxinput')?.value?.trim() || ''),
+      records: Array.from(records.values()),
+      sent_at: new Date().toISOString()
+    };
+  }
+
+  function relayToClientoTab(manual = false) {
+    if (!records.size) return false;
+    const payload = buildPayload();
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      chrome.storage.local.set({ cliento_latest_capture: payload }, () => {
+        if (manual) {
+          message.textContent = `${payload.records.length} data dikirim ke tab cliento yang terbuka (juga tersedia via Unduh JSON).`;
+        }
+      });
+      return true;
+    }
+    if (manual) {
+      message.textContent = 'Gunakan Unduh rekap JSON lalu impor di tab cliento.';
+    }
+    return false;
+  }
+
   control('download').addEventListener('click', event => {
     if (!event.isTrusted || running || !records.size) return;
-    const payload = {context: helpers.parseQueryContext(queryName), records: Array.from(records.values())};
+    const payload = buildPayload();
     const blobUrl = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'}));
     const anchor = document.createElement('a');
     anchor.href = blobUrl;
@@ -359,6 +393,14 @@
     setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     message.textContent = 'Rekap JSON diunduh. Pilih file tersebut di menu Impor Google Maps pada cliento.';
   });
+
+  const sendBtn = control('send');
+  if (sendBtn) {
+    sendBtn.addEventListener('click', event => {
+      if (!event.isTrusted || running || !records.size) return;
+      relayToClientoTab(true);
+    });
+  }
 
   control('clear').addEventListener('click', event => {
     if (!event.isTrusted || running) return;
