@@ -19,6 +19,8 @@
     },
     {
       "matches": [
+        "https://cliento.my.id/*",
+        "https://www.cliento.my.id/*",
         "https://recreativeid.github.io/*",
         "http://localhost/*",
         "http://127.0.0.1/*"

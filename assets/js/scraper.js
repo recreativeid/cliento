@@ -4455,6 +4455,19 @@ const ScraperClient = {
                 'badge-red',
                 false
             );
+            const msgEl = document.getElementById('engine-status-msg');
+            if (msgEl && !diag?.cloud_api?.active && !diag?.local_chrome?.active) {
+                const act = document.createElement('div');
+                act.style.marginTop = '8px';
+                act.innerHTML = `<button type="button" id="btn-hybrid-open-ext-fallback" class="btn btn-primary btn-sm" style="font-size:0.72rem;padding:6px 10px;">🌐 Buka Google Maps Asli (Ekstensi Chrome)</button>`;
+                msgEl.appendChild(act);
+                document.getElementById('btn-hybrid-open-ext-fallback')?.addEventListener('click', () => {
+                    document.getElementById('advanced-engine-details')?.setAttribute('open', 'true');
+                    const extBox = document.getElementById('extension-manual-box');
+                    if (extBox) extBox.style.display = 'block';
+                    this.launchGoogleMapsAutoScrape();
+                });
+            }
             return;
         }
 

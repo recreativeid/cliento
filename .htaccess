@@ -1,5 +1,4 @@
 RewriteEngine On
-RewriteBase /Client_Reach_ai/
 
 # ─────────────────────────────────────────────────────────
 # SECURITY: Block direct access to sensitive files & dirs
@@ -43,19 +42,21 @@ RedirectMatch 404 /\.git
     Require all denied
 </FilesMatch>
 
-# Block database/ directory entirely (init.php, migrate scripts)
+# Block database/ & storage/ & dev/test directories entirely
 RewriteRule ^database/ - [F,L]
-
-# Block scratch/ directory entirely (dev test scripts)
+RewriteRule ^storage/ - [F,L]
+RewriteRule ^tests/ - [F,L]
+RewriteRule ^scripts/ - [F,L]
 RewriteRule ^scratch/ - [F,L]
-
-# Block .kilo/ directory
 RewriteRule ^\.kilo/ - [F,L]
 
-# Block Markdown documentation files from direct download
-<FilesMatch "\.(md)$">
+# Block Markdown documentation & server log files from direct download
+<FilesMatch "\.(md|log)$">
     Require all denied
 </FilesMatch>
+<Files "error_log">
+    Require all denied
+</Files>
 
 # ─────────────────────────────────────────────────────────
 # SECURITY HEADERS

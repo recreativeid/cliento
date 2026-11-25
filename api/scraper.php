@@ -38,7 +38,7 @@ function scraperDetectLocalRuntime() {
             break;
         }
     }
-    if (!$nodeBin) {
+    if (!$nodeBin && function_exists('shell_exec')) {
         $whichCmd = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'where node 2>nul' : 'command -v node 2>/dev/null';
         $found = trim((string)@shell_exec($whichCmd));
         if ($found !== '') {
@@ -68,6 +68,7 @@ function scraperDetectLocalRuntime() {
 
     $scriptPath = __DIR__ . '/../scripts/local_headless_scraper.js';
     $scriptExists = @file_exists($scriptPath);
+    $canExec = function_exists('popen') && function_exists('pclose');
 
     return [
         'node_found' => $nodeBin !== null,
@@ -75,7 +76,8 @@ function scraperDetectLocalRuntime() {
         'chrome_found' => $chromeBin !== null,
         'chrome_bin' => $chromeBin,
         'script_found' => $scriptExists,
-        'ready' => ($nodeBin !== null && $chromeBin !== null && $scriptExists)
+        'can_exec' => $canExec,
+        'ready' => ($nodeBin !== null && $chromeBin !== null && $scriptExists && $canExec)
     ];
 }
 
@@ -215,9 +217,13 @@ function scraperLaunchLocalNode($runtime, $queryLabel, $limit, $extraArgs = []) 
 
     if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
         $winCmd = 'start "" /B cmd /c "' . $cmd . ' > ' . $logEsc . ' 2>&1"';
-        pclose(popen($winCmd, 'r'));
+        if (function_exists('popen') && function_exists('pclose')) {
+            pclose(popen($winCmd, 'r'));
+        }
     } else {
-        pclose(popen($cmd . ' > ' . $logEsc . ' 2>&1 &', 'r'));
+        if (function_exists('popen') && function_exists('pclose')) {
+            pclose(popen($cmd . ' > ' . $logEsc . ' 2>&1 &', 'r'));
+        }
     }
 }
 
