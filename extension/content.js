@@ -93,8 +93,8 @@
   panel.innerHTML = `
     <strong>cliento · Google Maps Scraper</strong>
     <p>Buka hasil pencarian Google Maps, lalu mulai pengambilan data.</p>
-    <label>Batas per proses (1–100)
-      <input id="cr-limit" type="number" min="1" max="100" value="30" style="width:64px;margin-left:6px">
+    <label>Batas per proses (1–5000)
+      <input id="cr-limit" type="number" min="1" max="5000" value="100" style="width:72px;margin-left:6px">
     </label>
     <label style="display:block;margin:8px 0"><input id="cr-details" type="checkbox" checked> Buka detail untuk kontak dan website</label>
     <label style="display:block;margin:8px 0"><input id="cr-scroll" type="checkbox" checked> Gulir daftar untuk memuat hasil berikutnya</label>
@@ -215,9 +215,9 @@
   function store(record) {
     const key = helpers.identity(record.source_url);
     if (!key || !record.name) return;
-    if (!records.has(key) && records.size >= 500) {
+    if (!records.has(key) && records.size >= 5000) {
       stopRequested = true;
-      message.textContent = 'Rekap mencapai 500 bisnis. Unduh JSON, lalu hapus rekap sebelum melanjutkan.';
+      message.textContent = 'Rekap mencapai 5000 bisnis. Kirim/Unduh JSON, lalu hapus rekap sebelum melanjutkan.';
       return;
     }
     records.set(key, helpers.merge(records.get(key) || {}, record));
@@ -279,8 +279,8 @@
     if (!event.isTrusted || running) return;
     if (blocked()) { message.textContent = 'Halaman dibatasi. Selesaikan pembatasan di browser sebelum memulai.'; return; }
     const limit = Number(control('limit').value);
-    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-      message.textContent = 'Isi batas berupa bilangan bulat 1–100.';
+    if (!Number.isInteger(limit) || limit < 1 || limit > 5000) {
+      message.textContent = 'Isi batas berupa bilangan bulat 1–5000.';
       return;
     }
     const detailEnabled = control('details').checked;
@@ -295,7 +295,7 @@
     try {
       // Scroll attempts and per-run records are both bounded; no new query,
       // category rotation, background request or CAPTCHA bypass is performed.
-      for (let attempt = 0; attempt <= 20 && processed < limit && !stopRequested; attempt++) {
+      for (let attempt = 0; attempt <= 200 && processed < limit && !stopRequested; attempt++) {
         const pending = cards().filter(card => !visited.has(card.key));
         if (!pending.length) stalls++; else stalls = 0;
         for (const card of pending) {

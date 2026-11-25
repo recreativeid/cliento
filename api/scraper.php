@@ -230,8 +230,10 @@ function scraperLaunchLocalNode($runtime, $queryLabel, $limit, $extraArgs = []) 
 // 0c. Local Chrome Engine with Incremental Auto-Save and 45s CAPTCHA Popup
 if ($action === 'run_local_scrape') {
     $q = trim($_GET['query'] ?? ($jsonInput['query'] ?? ($_POST['query'] ?? '')));
-    $limit = (int)($_GET['limit'] ?? ($jsonInput['limit'] ?? ($_POST['limit'] ?? 25)));
+    $limit = max(1, min(50000, (int)($_GET['limit'] ?? ($jsonInput['limit'] ?? ($_POST['limit'] ?? 25)))));
     $headless = (bool)($_GET['headless'] ?? ($jsonInput['headless'] ?? ($_POST['headless'] ?? true)));
+    $sublocations = $jsonInput['sublocations'] ?? ($_POST['sublocations'] ?? []);
+    if (!is_array($sublocations)) $sublocations = [];
 
     if (empty($q)) {
         $cat = trim($_GET['category'] ?? ($jsonInput['category'] ?? ($_POST['category'] ?? 'bisnis')));
@@ -241,7 +243,7 @@ if ($action === 'run_local_scrape') {
 
     $runtime = scraperDetectLocalRuntime();
     if (!$runtime['ready']) {
-        $why = !$runtime['node_found'] ? 'Node.js tidak ditemukan di komputer server.' : (!$runtime['chrome_found'] ? 'Google Chrome / Edge tidak ditemukan.' : 'Script scraper lokal tidak ditemukan.');
+        $why = !$runtime['node_found'] ? 'Node.js tidak ditemukan di komputer server.' : (!$runtime['chrome_found'] ? 'Google Chrome / Edge tidak ditemukan.' : (!empty($runtime['script_found']) ? 'Eksekusi shell dinonaktifkan di hosting ini.' : 'Script scraper lokal tidak ditemukan.'));
         jsonResponse([
             'success' => false,
             'message' => 'Mesin Lokal Chrome tidak bisa dimulai: ' . $why,
@@ -249,7 +251,16 @@ if ($action === 'run_local_scrape') {
         ], 400);
     }
 
-    scraperLaunchLocalNode($runtime, $q, $limit, ['--headless=' . ($headless ? 'true' : 'false')]);
+    $extraArgs = ['--headless=' . ($headless ? 'true' : 'false')];
+    if (!empty($sublocations)) {
+        $storageDir = __DIR__ . '/../storage';
+        if (!is_dir($storageDir)) @mkdir($storageDir, 0775, true);
+        $subFile = (realpath($storageDir) ?: $storageDir) . DIRECTORY_SEPARATOR . 'local_sublocations.json';
+        @file_put_contents($subFile, json_encode(['sublocations' => array_values(array_unique(array_filter(array_map('strval', $sublocations))))], JSON_UNESCAPED_UNICODE));
+        $extraArgs[] = escapeshellarg('--sublocations-file=' . $subFile);
+    }
+
+    scraperLaunchLocalNode($runtime, $q, $limit, $extraArgs);
 
     jsonResponse([
         'success' => true,
@@ -281,7 +292,7 @@ if ($action === 'run_url_batch_scrape') {
         if (!$isMapsHost || isset($seen[$u])) continue;
         $seen[$u] = true;
         $validUrls[] = $u;
-        if (count($validUrls) >= 100) break;
+        if (count($validUrls) >= 5000) break;
     }
 
     if (empty($validUrls)) {

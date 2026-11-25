@@ -44,7 +44,10 @@ assert.ok(cloudScraperPhp.includes("'attempt_log' =>"), 'api/cloud_scraper.php m
 assert.ok(localJs.includes('button[data-item-id^="phone:tel:"]'), 'local_headless_scraper.js must inspect detail pane phone selector');
 assert.ok(localJs.includes("getArg('urls-file'"), 'local_headless_scraper.js must support --urls-file batch mode');
 assert.ok(localJs.includes("updateProgress('collecting_links'"), 'local_headless_scraper.js must run 2-phase link collection + extraction');
+assert.ok(localJs.includes("getArg('sublocations-file'"), 'local_headless_scraper.js must support sublocation expansion beyond 100 results');
 assert.ok(localJs.includes('failover_to_api'), 'local_headless_scraper.js must preserve 45s failover_to_api');
+const agentJs = fs.readFileSync(path.join(__dirname, '../scripts/cliento_local_agent.js'), 'utf8');
+assert.ok(agentJs.includes('127.0.0.1') && agentJs.includes('Access-Control-Allow-Private-Network'), 'cliento_local_agent.js must support Chrome Private Network Access from https://cliento.my.id');
 
 // 5. Evaluate ScraperClient in VM to verify static host refusal, Hybrid Merge separation, and clean dropdowns
 const exportLine = 'window.ScraperClient = ScraperClient;';
@@ -113,7 +116,18 @@ client.executeHybridScrape().then(async () => {
     assert.equal(sheetLeads[1].phone, '');
     assert.equal(sheetLeads[1].insights.metrics.rating_available, false);
 
-    console.log('✓ All Honest Multi-Engine UI, Telemetry, Amapulse URL Batch & Extension Bridge tests passed successfully!');
+    // Unlimited / >1000 target limit helper verification
+    let mockSelectVal = '1000';
+    let mockCustomVal = '3500';
+    context.document.getElementById = id => (
+        id === 'scraper-batch-limit' ? { get value() { return mockSelectVal; } } :
+        (id === 'scraper-custom-limit' ? { get value() { return mockCustomVal; } } : null)
+    );
+    assert.equal(client.getActiveBatchLimit(), 1000);
+    mockSelectVal = 'custom';
+    assert.equal(client.getActiveBatchLimit(), 3500);
+
+    console.log('✓ All Honest Multi-Engine UI, Telemetry, Unlimited Limits, Amapulse URL Batch & PC Agent Bridge tests passed successfully!');
 }).catch(err => {
     console.error(err);
     process.exit(1);

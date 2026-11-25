@@ -25,7 +25,8 @@ function getArg(name, defaultValue) {
 
 const query = getArg('query', 'kuliner di Magelang');
 const urlsFile = getArg('urls-file', '');
-let limit = parseInt(getArg('limit', '25'), 10);
+const sublocationsFile = getArg('sublocations-file', '');
+let limit = Math.max(1, parseInt(getArg('limit', '25'), 10) || 25);
 const startHeadless = getArg('headless', 'true') === 'true';
 const storageDir = path.resolve(__dirname, '../storage');
 
@@ -36,8 +37,17 @@ if (urlsFile && fs.existsSync(urlsFile)) {
         const list = Array.isArray(parsed) ? parsed : (parsed.urls || []);
         batchUrls = list.map(u => String(u || '').trim()).filter(u => /^https?:\/\//i.test(u));
         if (batchUrls.length > 0 && (!args.find(a => a.startsWith('--limit=')) || limit < batchUrls.length)) {
-            limit = Math.min(100, batchUrls.length);
+            limit = batchUrls.length;
         }
+    } catch (_) {}
+}
+
+let sublocations = [];
+if (sublocationsFile && fs.existsSync(sublocationsFile)) {
+    try {
+        const parsedSub = JSON.parse(fs.readFileSync(sublocationsFile, 'utf-8'));
+        const slist = Array.isArray(parsedSub) ? parsedSub : (parsedSub.sublocations || []);
+        sublocations = slist.map(s => String(s || '').trim()).filter(Boolean);
     } catch (_) {}
 }
 
@@ -469,6 +479,26 @@ async function main() {
                 if (!res.place.google_maps_url || !res.place.google_maps_url.includes('/maps/place/')) {
                     res.place.google_maps_url = rawUrl;
                 }
+                // Free real WA enrichment: if public website / Linktree exists and whatsapp isn't set yet, inspect for wa.me link
+                if (!res.place.whatsapp && res.place.website && /^https?:\/\//i.test(res.place.website)) {
+                    try {
+                        const ctrl = new AbortController();
+                        const tm = setTimeout(() => ctrl.abort(), 3500);
+                        const webResp = await fetch(res.place.website, {
+                            signal: ctrl.signal,
+                            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0.0.0 Safari/537.36' }
+                        });
+                        clearTimeout(tm);
+                        if (webResp.ok) {
+                            const html = await webResp.text();
+                            const waHit = html.match(/(?:wa\.me\/|api\.whatsapp\.com\/send\?[^"'\s]*phone=)(?:62|0)?(\d{8,14})/i);
+                            if (waHit && waHit[1]) {
+                                const digits = waHit[1].replace(/[^\d]/g, '');
+                                res.place.whatsapp = digits.startsWith('62') ? digits : ('62' + digits.replace(/^0+/, ''));
+                            }
+                        }
+                    } catch (_) {}
+                }
                 savePlaceIncrementally(res.place);
             } else {
                 console.log(`[Lewati]${labelPrefix} (${idx + 1}/${targets.length}) Tidak dapat membaca detail tempat: ${rawUrl}`);
@@ -480,78 +510,96 @@ async function main() {
         console.log(`Mode Batch Link Google Maps (Ala Amapulse): ${Math.min(limit, batchUrls.length)} link siap diekstrak...`);
         await extractBatchTargets(batchUrls);
     } else {
-        // 2-Phase Search Pipeline (Exact Amapulse Flow Directly Inside Web):
-        // Phase 1: Scroll Google Maps feed & auto-collect clean /maps/place/ links
-        // Phase 2: Visit each collected link via extractBatchTargets() for reliable per-column extraction
-        console.log(`[Tahap 1/2] Mencari & menyalin link Google Maps otomatis untuk "${query}"...`);
-        updateProgress('collecting_links', 0, false);
-
-        const autoCollectedLinks = [];
-        const seenLinkKeys = new Set();
-        let linkIdleRounds = 0;
-
-        for (let round = 0; round < 18 && autoCollectedLinks.length < limit; round++) {
-            const capState = await checkAndHandleCaptcha();
-            if (capState === 'failover') break;
-
-            await sleep(round === 0 ? 1800 : 1200);
-            const scanRes = await send('Runtime.evaluate', {
-                returnByValue: true,
-                expression: `(() => {
-                    const feed = document.querySelector('[role="feed"]');
-                    const h1 = Array.from(document.querySelectorAll('h1.DUwDvf, h1.fontHeadlineLarge')).find(el => el.getClientRects().length > 0);
-                    if (!feed) {
-                        return { hasFeed: false, hasSingleH1: !!(h1 && (h1.innerText || '').trim()), links: [] };
-                    }
-                    const links = [];
-                    feed.querySelectorAll('a[href*="/maps/place/"]').forEach(a => {
-                        const href = a.href || '';
-                        const m = href.match(/!1s([^!/?]+)/);
-                        const key = m ? m[1] : href.split('?')[0];
-                        if (key && href) links.push({ key, href });
-                    });
-                    const atEnd = /akhir daftar|end of the list|reached the end/i.test(feed.innerText || '');
-                    return { hasFeed: true, hasSingleH1: false, links, atEnd };
-                })()`
-            });
-
-            const scan = scanRes.result?.value || {};
-            if (!scan.hasFeed && scan.hasSingleH1) {
-                const singlePlace = await extractOpenPlaceDetail();
-                if (singlePlace && singlePlace.name) {
-                    savePlaceIncrementally(singlePlace);
-                }
-                break;
+        // 2-Phase Search Pipeline (Exact Amapulse Flow Directly Inside Web + Multi-Area Fan-Out for >100 targets)
+        const baseCat = query.includes(' di ') ? query.split(' di ')[0].trim() : query;
+        const searchQueries = [query];
+        if (limit > 80 && sublocations.length > 0) {
+            for (const sub of sublocations) {
+                const subQ = `${baseCat} di ${sub}`;
+                if (!searchQueries.includes(subQ)) searchQueries.push(subQ);
             }
-
-            let addedThisRound = 0;
-            for (const item of (scan.links || [])) {
-                if (seenLinkKeys.has(item.key)) continue;
-                seenLinkKeys.add(item.key);
-                autoCollectedLinks.push(item.href);
-                addedThisRound++;
-                if (autoCollectedLinks.length >= limit) break;
-            }
-
-            console.log(`[Tahap 1/2] Tersalin otomatis ${autoCollectedLinks.length}/${limit} link Google Maps...`);
-            updateProgress('collecting_links', collectedPlaces.length, false);
-
-            if (autoCollectedLinks.length >= limit || scan.atEnd) break;
-            if (addedThisRound === 0) linkIdleRounds++;
-            else linkIdleRounds = 0;
-            if (linkIdleRounds >= 4) break;
-
-            await send('Runtime.evaluate', {
-                expression: `(() => {
-                    const feed = document.querySelector('[role="feed"]');
-                    if (feed) feed.scrollBy(0, 1400);
-                })()`
-            });
         }
 
-        if (autoCollectedLinks.length > 0 && !fs.existsSync(failoverFile)) {
-            console.log(`[Tahap 2/2] Mengekstrak data per kolom dari ${autoCollectedLinks.length} link (ala Amapulse)...`);
-            await extractBatchTargets(autoCollectedLinks, ' [Auto-Link]');
+        const seenLinkKeys = new Set();
+        for (let qIdx = 0; qIdx < searchQueries.length && collectedPlaces.length < limit; qIdx++) {
+            const activeQ = searchQueries[qIdx];
+            if (qIdx > 0) {
+                console.log(`\n[Ekspansi Wilayah ${qIdx + 1}/${searchQueries.length}] Target belum penuh (${collectedPlaces.length}/${limit}), melanjutkan ke "${activeQ}"...`);
+                await send('Page.navigate', { url: `https://www.google.com/maps/search/${encodeURIComponent(activeQ)}?hl=id` });
+                await sleep(2000);
+            }
+
+            console.log(`[Tahap 1/2] Mencari & menyalin link Google Maps otomatis untuk "${activeQ}"...`);
+            updateProgress('collecting_links', collectedPlaces.length, false);
+
+            const autoCollectedLinks = [];
+            let linkIdleRounds = 0;
+            const maxScrollRounds = Math.min(220, Math.max(20, Math.ceil((limit - collectedPlaces.length) / 2)));
+
+            for (let round = 0; round < maxScrollRounds && (collectedPlaces.length + autoCollectedLinks.length) < limit; round++) {
+                const capState = await checkAndHandleCaptcha();
+                if (capState === 'failover') break;
+
+                await sleep(round === 0 ? 1800 : 1200);
+                const scanRes = await send('Runtime.evaluate', {
+                    returnByValue: true,
+                    expression: `(() => {
+                        const feed = document.querySelector('[role="feed"]');
+                        const h1 = Array.from(document.querySelectorAll('h1.DUwDvf, h1.fontHeadlineLarge')).find(el => el.getClientRects().length > 0);
+                        if (!feed) {
+                            return { hasFeed: false, hasSingleH1: !!(h1 && (h1.innerText || '').trim()), links: [] };
+                        }
+                        const links = [];
+                        feed.querySelectorAll('a[href*="/maps/place/"]').forEach(a => {
+                            const href = a.href || '';
+                            const m = href.match(/!1s([^!/?]+)/);
+                            const key = m ? m[1] : href.split('?')[0];
+                            if (key && href) links.push({ key, href });
+                        });
+                        const atEnd = /akhir daftar|end of the list|reached the end/i.test(feed.innerText || '');
+                        return { hasFeed: true, hasSingleH1: false, links, atEnd };
+                    })()`
+                });
+
+                const scan = scanRes.result?.value || {};
+                if (!scan.hasFeed && scan.hasSingleH1) {
+                    const singlePlace = await extractOpenPlaceDetail();
+                    if (singlePlace && singlePlace.name) {
+                        savePlaceIncrementally(singlePlace);
+                    }
+                    break;
+                }
+
+                let addedThisRound = 0;
+                for (const item of (scan.links || [])) {
+                    if (seenLinkKeys.has(item.key)) continue;
+                    seenLinkKeys.add(item.key);
+                    autoCollectedLinks.push(item.href);
+                    addedThisRound++;
+                    if ((collectedPlaces.length + autoCollectedLinks.length) >= limit) break;
+                }
+
+                console.log(`[Tahap 1/2] Tersalin otomatis ${autoCollectedLinks.length} link baru (total kemajuan target: ${collectedPlaces.length + autoCollectedLinks.length}/${limit})...`);
+                updateProgress('collecting_links', collectedPlaces.length, false);
+
+                if ((collectedPlaces.length + autoCollectedLinks.length) >= limit || scan.atEnd) break;
+                if (addedThisRound === 0) linkIdleRounds++;
+                else linkIdleRounds = 0;
+                if (linkIdleRounds >= 4) break;
+
+                await send('Runtime.evaluate', {
+                    expression: `(() => {
+                        const feed = document.querySelector('[role="feed"]');
+                        if (feed) feed.scrollBy(0, 1400);
+                    })()`
+                });
+            }
+
+            if (autoCollectedLinks.length > 0 && !fs.existsSync(failoverFile)) {
+                console.log(`[Tahap 2/2] Mengekstrak data per kolom dari ${autoCollectedLinks.length} link (ala Amapulse)...`);
+                await extractBatchTargets(autoCollectedLinks, ' [Auto-Link]');
+            }
+            if (fs.existsSync(failoverFile)) break;
         }
     }
 

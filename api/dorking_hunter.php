@@ -312,36 +312,27 @@ function dorkingCheckAvailability($useCache = true) {
         ];
     }
 
-    $cacheFile = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'cliento_ddg_probe.json';
+    $cacheFile = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'cliento_ddg_probe_v2.json';
     if ($useCache && @file_exists($cacheFile)) {
         $cached = json_decode((string)@file_get_contents($cacheFile), true);
-        if (is_array($cached) && isset($cached['checked_at']) && (time() - (int)$cached['checked_at']) < 60 && isset($cached['active'])) {
+        if (is_array($cached) && isset($cached['checked_at']) && (time() - (int)$cached['checked_at']) < 120 && isset($cached['active'])) {
             return $cached;
         }
     }
 
-    $ch = curl_init('https://html.duckduckgo.com/');
-    curl_setopt_array($ch, [
-        CURLOPT_NOBODY => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CONNECTTIMEOUT => 2,
-        CURLOPT_TIMEOUT => 3,
-        CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_HTTPHEADER => ['User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36']
-    ]);
-    curl_exec($ch);
-    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlErr = curl_error($ch);
-    curl_close($ch);
+    // Perform an actual lightweight query test (HEAD / alone can return 200 while search returns 202 anti-bot challenge!)
+    $probeResp = dorkingQueryDuckDuckGo('kopi indonesia');
+    $isBlocked = !empty($probeResp['blocked']) || !empty($probeResp['network_blocked']);
+    $reachable = !empty($probeResp['ok']) && !$isBlocked;
+    $errMsg = $probeResp['error'] ?: ('HTTP ' . ($probeResp['http_code'] ?? 0));
 
-    $reachable = ($code >= 200 && $code < 500);
     $result = [
         'active' => $reachable,
         'status' => $reachable ? 'active' : 'off',
         'engine' => 'DuckDuckGo HTML',
         'message' => $reachable
             ? 'Aktif — DuckDuckGo HTML cURL siap buru WA di IG, FB, TikTok & Website'
-            : ('Mati (Blokir ISP/TLS) — duckduckgo.com gagal dijangkau tanpa VPN (' . ($curlErr ?: 'HTTP ' . $code) . '); isi SERPAPI_API_KEY atau aktifkan VPN'),
+            : ('Mati — ' . $errMsg . ' (isi SERPAPI_API_KEY di config.local.php agar langsung aktif tanpa challenge)'),
         'checked_at' => time()
     ];
     @file_put_contents($cacheFile, json_encode($result));

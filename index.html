@@ -679,17 +679,36 @@
                 <div id="engine-diagnostics-badges" style="display: flex; flex-wrap: wrap; gap: 4px; font-size: 0.62rem;">
                   <span style="color: #64748b;">Memeriksa status API, Google Places, Chrome Lokal &amp; DuckDuckGo...</span>
                 </div>
+                <div id="local-agent-download-banner" style="display: none; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #cbd5e1; font-size: 0.64rem; color: #334155; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;">
+                  <span>💡 Agar <strong>Chrome Lokal 45s</strong> aktif dari web ini:</span>
+                  <a href="downloads/cliento-local-agent.zip" download class="btn btn-outline btn-sm" style="padding: 3px 8px; font-size: 0.63rem; background: #fff; color: #059669; border-color: #10b981; font-weight: 700;">
+                    ⬇️ Download Agen PC (Windows)
+                  </a>
+                </div>
               </div>
 
-              <!-- Pengaturan Batas Jumlah Data -->
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; background: #f8fafc; padding: 6px 10px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                <span style="font-size: 0.70rem; font-weight: 600; color: #475569;">Target Jumlah Data:</span>
-                <select id="scraper-batch-limit" class="form-select" style="width: auto; font-size: 0.72rem; padding: 4px 8px; font-weight: 600;">
-                  <option value="15">15 Data</option>
-                  <option value="25" selected>25 Data</option>
-                  <option value="50">50 Data</option>
-                  <option value="100">100 Data (Maksimal)</option>
-                </select>
+              <!-- Pengaturan Batas Jumlah Data (Bebas Ribuan) -->
+              <div style="margin-bottom: 10px; background: #f8fafc; padding: 7px 10px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                  <span style="font-size: 0.70rem; font-weight: 600; color: #475569;">Target Jumlah Data:</span>
+                  <div style="display: flex; align-items: center; gap: 5px;">
+                    <select id="scraper-batch-limit" class="form-select" style="width: auto; font-size: 0.72rem; padding: 4px 8px; font-weight: 600;">
+                      <option value="25" selected>25 Data</option>
+                      <option value="50">50 Data</option>
+                      <option value="100">100 Data</option>
+                      <option value="250">250 Data</option>
+                      <option value="500">500 Data</option>
+                      <option value="1000">1.000 Data</option>
+                      <option value="2500">2.500 Data</option>
+                      <option value="5000">5.000 Data</option>
+                      <option value="custom">✏️ Angka Bebas...</option>
+                    </select>
+                    <input type="number" id="scraper-custom-limit" min="1" max="50000" value="1000" placeholder="Misal: 1500" style="display: none; width: 84px; font-size: 0.72rem; padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 600;">
+                  </div>
+                </div>
+                <div style="font-size: 0.60rem; color: #64748b; margin-top: 4px;">
+                  Target &gt; 100 otomatis diperluas per kecamatan/wilayah untuk mengambil ratusan–ribuan data unik.
+                </div>
               </div>
 
               <!-- SATU TOMBOL UTAMA BESAR & POWERFUL -->

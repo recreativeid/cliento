@@ -3543,14 +3543,16 @@ const ScraperClient = {
         }
 
         const batchLimitSelect = document.getElementById('scraper-batch-limit');
+        const customLimitInput = document.getElementById('scraper-custom-limit');
         if (batchLimitSelect) {
             batchLimitSelect.addEventListener('change', () => {
+                if (customLimitInput) {
+                    customLimitInput.style.display = (batchLimitSelect.value === 'custom') ? 'inline-block' : 'none';
+                    if (batchLimitSelect.value === 'custom') customLimitInput.focus();
+                }
                 const hintBadge = document.getElementById('limit-hint-badge');
                 if (hintBadge) {
-                    const val = batchLimitSelect.value;
-                    hintBadge.textContent = (val === 'all') 
-                        ? `Semua (${(this.candidatePlaces && this.candidatePlaces.length) ? this.candidatePlaces.length : 'Semua'})` 
-                        : `${val} Tempat`;
+                    hintBadge.textContent = `${this.getActiveBatchLimit()} Tempat`;
                 }
             });
         }
@@ -3919,32 +3921,128 @@ const ScraperClient = {
         }).join('');
     },
 
+    getActiveBatchLimit() {
+        const sel = document.getElementById('scraper-batch-limit');
+        const custom = document.getElementById('scraper-custom-limit');
+        if (!sel) return 25;
+        if (sel.value === 'custom') {
+            return Math.max(1, Math.min(50000, parseInt(custom?.value || '1000', 10) || 1000));
+        }
+        if (sel.value === 'all') return 1000;
+        return Math.max(1, Math.min(50000, parseInt(sel.value || '25', 10) || 25));
+    },
+
+    getActiveSublocations() {
+        if (typeof REGIONS_DATA === 'undefined') return [];
+        const provId = document.getElementById('filter-provinsi')?.value || '';
+        const kabId = document.getElementById('filter-kabupaten')?.value || '';
+        const kecId = document.getElementById('filter-kecamatan')?.value || '';
+        const list = [];
+        if (kecId && REGIONS_DATA.villages?.[kecId]) {
+            const kecText = document.getElementById('filter-kecamatan')?.selectedOptions?.[0]?.textContent || '';
+            const kabText = document.getElementById('filter-kabupaten')?.selectedOptions?.[0]?.textContent?.replace(/\s*\[.*?\]/g, '').trim() || '';
+            REGIONS_DATA.villages[kecId].forEach(v => list.push(`${v.name}, ${kecText}, ${kabText}`));
+        } else if (kabId && REGIONS_DATA.districts?.[kabId]) {
+            const kabText = document.getElementById('filter-kabupaten')?.selectedOptions?.[0]?.textContent?.replace(/\s*\[.*?\]/g, '').trim() || '';
+            REGIONS_DATA.districts[kabId].forEach(d => list.push(`${d.name}, ${kabText}`));
+        } else if (provId && REGIONS_DATA.regencies?.[provId]) {
+            const provText = document.getElementById('filter-provinsi')?.selectedOptions?.[0]?.textContent || '';
+            REGIONS_DATA.regencies[provId].forEach(k => list.push(`${k.name}, ${provText}`));
+        }
+        return list.slice(0, 60);
+    },
+
+    async detectLocalBridgeAgent() {
+        if (typeof fetch !== 'function') return null;
+        try {
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timer = controller ? setTimeout(() => controller.abort(), 1200) : null;
+            const res = await fetch('http://127.0.0.1:43210/status', controller ? { signal: controller.signal } : {});
+            if (timer) clearTimeout(timer);
+            if (!res || !res.ok) return null;
+            const data = await res.json();
+            if (data && data.active) return data;
+        } catch (_) {}
+        return null;
+    },
+
+    async startLocalScrapeSession({ urlBatch = null, query = '', limit = 25, headless = true } = {}) {
+        const viaAgent = !!(this.localAgentStatus && this.localAgentStatus.active);
+        const sublocations = (!urlBatch && limit > 80) ? this.getActiveSublocations() : [];
+        if (viaAgent) {
+            const endpoint = urlBatch ? 'http://127.0.0.1:43210/scrape-urls' : 'http://127.0.0.1:43210/scrape';
+            const bodyPayload = urlBatch ? { urls: urlBatch, headless } : { query, limit, headless, sublocations };
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bodyPayload)
+            });
+            const data = await res.json();
+            return { ...data, progressUrl: 'http://127.0.0.1:43210/progress' };
+        }
+        const action = urlBatch ? 'api/scraper.php?action=run_url_batch_scrape' : 'api/scraper.php?action=run_local_scrape';
+        const bodyPayload = urlBatch ? { urls: urlBatch, headless } : { query, limit, headless, sublocations };
+        const data = await this.safeFetchJson(action, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bodyPayload)
+        });
+        return { ...data, progressUrl: 'api/scraper.php?action=local_scrape_status' };
+    },
+
     async refreshEngineDiagnostics() {
         const container = document.getElementById('engine-diagnostics-badges');
+        const agentBanner = document.getElementById('local-agent-download-banner');
+        const applyAgent = (engines) => {
+            if (this.localAgentStatus && this.localAgentStatus.active) {
+                engines.local_chrome = {
+                    status: 'active',
+                    active: true,
+                    via: 'pc_agent',
+                    message: 'Aktif — Agen PC Lokal terhubung (127.0.0.1:43210 · Chrome + Auto-Save + CAPTCHA 45s)'
+                };
+                if (engines.cloud_api?.active || engines.google_places?.active) {
+                    engines.failover_merge = { status: 'active', active: true, message: 'Siap — Failover 45s ke Cloud API aktif' };
+                } else {
+                    engines.failover_merge = { status: 'standby', active: false, message: 'Sebagian — Auto-save Agen PC aman, estafet Cloud menunggu API Key' };
+                }
+            }
+            if (agentBanner) {
+                agentBanner.style.display = engines.local_chrome?.active ? 'none' : 'flex';
+            }
+            return engines;
+        };
+
         if (this.isStaticHost()) {
-            const diag = this.buildStaticHostDiagnostics();
+            this.localAgentStatus = await this.detectLocalBridgeAgent();
+            const diag = applyAgent(this.buildStaticHostDiagnostics());
             this.lastDiagnostics = diag;
             this.renderEngineDiagnosticsStrip(diag);
             return diag;
         }
         if (container) {
-            container.innerHTML = '<span style="color:#64748b;">Mengecek status real-time server...</span>';
+            container.innerHTML = '<span style="color:#64748b;">Mengecek status real-time server &amp; PC lokal...</span>';
         }
         try {
-            const res = await this.safeFetchJson('api/scraper.php?action=engine_diagnostics');
+            const [res, pcAgent] = await Promise.all([
+                this.safeFetchJson('api/scraper.php?action=engine_diagnostics'),
+                this.detectLocalBridgeAgent()
+            ]);
+            this.localAgentStatus = pcAgent;
             if (res && res.success && res.engines) {
-                this.lastDiagnostics = res.engines;
-                this.renderEngineDiagnosticsStrip(res.engines);
-                return res.engines;
+                const engines = applyAgent(res.engines);
+                this.lastDiagnostics = engines;
+                this.renderEngineDiagnosticsStrip(engines);
+                return engines;
             }
         } catch (err) {
-            const offlineDiag = {
+            const offlineDiag = applyAgent({
                 cloud_api: { status: 'off', active: false, message: 'Server PHP belum merespons (' + err.message + ')' },
                 google_places: { status: 'off', active: false, message: 'Server PHP belum merespons' },
                 local_chrome: { status: 'off', active: false, message: 'Server PHP / Node lokal belum merespons' },
                 failover_merge: { status: 'off', active: false, message: 'Server PHP belum merespons' },
                 dorking: { status: 'off', active: false, message: 'Server PHP belum merespons' }
-            };
+            });
             this.lastDiagnostics = offlineDiag;
             this.renderEngineDiagnosticsStrip(offlineDiag);
             return offlineDiag;
@@ -4065,11 +4163,11 @@ const ScraperClient = {
             return;
         }
 
-        if (this.isStaticHost()) {
+        if (this.isStaticHost() && !(this.localAgentStatus && this.localAgentStatus.active)) {
             this.setEngineStatus(
-                'Batch Link (Ala Amapulse) Butuh XAMPP Localhost',
-                `Terdeteksi <strong>${urls.length} link Google Maps</strong>, namun halaman <code>github.io</code> tidak dapat mengendalikan Chrome lokal. Buka melalui <code>http://localhost/Client_Reach_ai/</code> (XAMPP) agar semua link diekstrak otomatis 1 klik.`,
-                'Buka di Localhost',
+                'Batch Link (Ala Amapulse) Butuh Agen PC Lokal atau XAMPP',
+                `Terdeteksi <strong>${urls.length} link Google Maps</strong>. Jalankan <strong>Agen PC Lokal</strong> di laptop Anda agar batch link berjalan langsung dari halaman ini.`,
+                'Butuh Agen PC',
                 'badge-red',
                 false
             );
@@ -4086,11 +4184,7 @@ const ScraperClient = {
         );
 
         try {
-            const startRes = await this.safeFetchJson('api/scraper.php?action=run_url_batch_scrape', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ urls, headless: true })
-            });
+            const startRes = await this.startLocalScrapeSession({ urlBatch: urls, headless: true });
             if (!startRes.success) {
                 throw new Error(startRes.message || 'Gagal memulai batch link Chrome lokal');
             }
@@ -4102,7 +4196,7 @@ const ScraperClient = {
                     tone: ev.phase === 'captcha' ? 'warn' : 'running',
                     detail: `Terekstrak & auto-save ${ev.count || 0}/${urls.length} tempat dari link yang ditempel.`
                 }]);
-            });
+            }, startRes.progressUrl);
 
             if (out.places && out.places.length > 0) {
                 this.setEngineStatus(
@@ -4130,16 +4224,16 @@ const ScraperClient = {
         }
     },
 
-    async pollLocalScraper(query, location, limitVal, allowFailoverMerge = true, onUpdate = null) {
+    async pollLocalScraper(query, location, limitVal, allowFailoverMerge = true, onUpdate = null, statusUrl = 'api/scraper.php?action=local_scrape_status') {
         return new Promise((resolve) => {
             let idleCount = 0;
             let pollCount = 0;
-            const maxPolls = 90; // Allow enough time for clicking detail panes + optional 45s CAPTCHA
+            const maxPolls = Math.max(120, Math.min(3600, limitVal * 4)); // Scales dynamically for 1000+ targets
 
             const pollTimer = setInterval(async () => {
                 pollCount++;
                 try {
-                    const st = await this.safeFetchJson('api/scraper.php?action=local_scrape_status');
+                    const st = await this.safeFetchJson(statusUrl || 'api/scraper.php?action=local_scrape_status');
 
                     if (st.captcha_prompt) {
                         idleCount = 0;
@@ -4249,9 +4343,12 @@ const ScraperClient = {
     async executeHybridScrape() {
         const { category, location } = this.getActiveCategoryAndLocation();
         const query = this.googleMapsSearchQuery();
-        const limitVal = parseInt(document.getElementById('scraper-batch-limit')?.value || '25', 10) || 25;
+        const limitVal = this.getActiveBatchLimit();
 
-        if (this.isStaticHost()) {
+        const preAgent = await this.detectLocalBridgeAgent();
+        this.localAgentStatus = preAgent;
+
+        if (this.isStaticHost() && !(preAgent && preAgent.active)) {
             this.showStaticHostRealNotice('Ekstraksi Otomatis 1 Klik');
             return;
         }
@@ -4347,24 +4444,26 @@ const ScraperClient = {
                     }
                 }
 
-                // Fallback ke Mesin Lokal Chrome jika Cloud/Places belum diisi atau gagal
+                // Fallback ke Mesin Lokal Chrome (atau Agen PC Lokal 127.0.0.1:43210)
                 if (diag?.local_chrome?.active) {
                     stateRows.local_chrome.stateLabel = 'BERJALAN';
                     stateRows.local_chrome.tone = 'running';
-                    stateRows.local_chrome.detail = 'Membuka Google Maps di Chrome latar belakang + auto-save per tempat...';
+                    stateRows.local_chrome.detail = diag.local_chrome.via === 'pc_agent'
+                        ? 'Menjalankan Chrome langsung di PC lokal Anda via Agen 127.0.0.1:43210...'
+                        : 'Membuka Google Maps di Chrome latar belakang + auto-save per tempat...';
                     syncMatrix();
 
-                    const startLocal = await this.safeFetchJson('api/scraper.php?action=run_local_scrape', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ query, limit: mapsTarget, headless: true })
-                    });
+                    const startLocal = await this.startLocalScrapeSession({ query, limit: mapsTarget, headless: true });
                     if (startLocal.success) {
                         const localOut = await this.pollLocalScraper(query, location, mapsTarget, true, (ev) => {
                             if (ev.phase === 'captcha') {
                                 stateRows.local_chrome.stateLabel = 'CAPTCHA 45s';
                                 stateRows.local_chrome.tone = 'warn';
                                 stateRows.local_chrome.detail = `Pop-up CAPTCHA aktif! ${ev.count} data sudah tersimpan. Menunggu 45 detik...`;
+                            } else if (ev.phase === 'collecting_links') {
+                                stateRows.local_chrome.stateLabel = 'SALIN LINK';
+                                stateRows.local_chrome.tone = 'running';
+                                stateRows.local_chrome.detail = `Tahap 1/2: Menyalin otomatis link Google Maps dari pencarian wilayah...`;
                             } else if (ev.phase === 'failover_start') {
                                 stateRows.failover_merge.stateLabel = 'ESTAFET';
                                 stateRows.failover_merge.tone = 'warn';
@@ -4373,7 +4472,7 @@ const ScraperClient = {
                                 stateRows.local_chrome.detail = `Terkumpul & auto-save: ${ev.count}/${mapsTarget} data Google Maps asli.`;
                             }
                             syncMatrix();
-                        });
+                        }, startLocal.progressUrl);
 
                         const countOk = (localOut.places || []).length;
                         stateRows.local_chrome.stateLabel = countOk > 0 ? `AKTIF (${countOk})` : 'MATI/KOSONG';
@@ -4458,8 +4557,11 @@ const ScraperClient = {
             const msgEl = document.getElementById('engine-status-msg');
             if (msgEl && !diag?.cloud_api?.active && !diag?.local_chrome?.active) {
                 const act = document.createElement('div');
-                act.style.marginTop = '8px';
-                act.innerHTML = `<button type="button" id="btn-hybrid-open-ext-fallback" class="btn btn-primary btn-sm" style="font-size:0.72rem;padding:6px 10px;">🌐 Buka Google Maps Asli (Ekstensi Chrome)</button>`;
+                act.style.cssText = 'margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;';
+                act.innerHTML = `
+                  <a href="downloads/cliento-local-agent.zip" download class="btn btn-primary btn-sm" style="font-size:0.72rem;padding:6px 10px;background:#059669;border-color:#059669;">⬇️ Download Agen Chrome PC Lokal</a>
+                  <button type="button" id="btn-hybrid-open-ext-fallback" class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:6px 10px;">🌐 Buka Google Maps Asli (Ekstensi Chrome)</button>
+                `;
                 msgEl.appendChild(act);
                 document.getElementById('btn-hybrid-open-ext-fallback')?.addEventListener('click', () => {
                     document.getElementById('advanced-engine-details')?.setAttribute('open', 'true');
@@ -4490,8 +4592,7 @@ const ScraperClient = {
     async executeCloudWaterfallScrape() {
         const { category, location } = this.getActiveCategoryAndLocation();
         const query = this.googleMapsSearchQuery();
-        const limitSelect = document.getElementById('scraper-batch-limit');
-        const limitVal = parseInt(limitSelect?.value || '25', 10) || 25;
+        const limitVal = this.getActiveBatchLimit();
 
         if (this.isStaticHost()) {
             this.showStaticHostRealNotice('Cloud API Estafet');
@@ -4555,17 +4656,17 @@ const ScraperClient = {
     async executeLocalChromeScrape() {
         const { category, location } = this.getActiveCategoryAndLocation();
         const query = this.googleMapsSearchQuery();
-        const limitSelect = document.getElementById('scraper-batch-limit');
-        const limitVal = parseInt(limitSelect?.value || '25', 10) || 25;
+        const limitVal = this.getActiveBatchLimit();
 
-        if (this.isStaticHost()) {
+        this.localAgentStatus = await this.detectLocalBridgeAgent();
+        if (this.isStaticHost() && !(this.localAgentStatus && this.localAgentStatus.active)) {
             this.showStaticHostRealNotice('Mesin Lokal Chrome');
             return;
         }
 
         this.setEngineStatus(
             'Mesin Lokal Laptop (CDP)',
-            'Memulai Chrome otomatis di latar belakang laptop Anda...',
+            'Memulai Chrome otomatis di laptop Anda (target: ' + limitVal + ' data)...',
             'Menyiapkan Chrome',
             'badge-blue',
             true,
@@ -4574,19 +4675,15 @@ const ScraperClient = {
         this.renderTelemetryMatrix([]);
 
         try {
-            const startData = await this.safeFetchJson('api/scraper.php?action=run_local_scrape', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, limit: limitVal, headless: true })
-            });
+            const startData = await this.startLocalScrapeSession({ query, limit: limitVal, headless: true });
 
             if (!startData.success) {
                 this.setEngineStatus('Mesin Lokal Mati', startData.message, 'Mati', 'badge-red');
                 return;
             }
 
-            this.showToast('Mesin lokal Chrome dimulai di latar belakang laptop Anda.');
-            const result = await this.pollLocalScraper(query, location, limitVal, true);
+            this.showToast('Mesin lokal Chrome dimulai di laptop Anda.');
+            const result = await this.pollLocalScraper(query, location, limitVal, true, null, startData.progressUrl);
 
             if (!result.places || result.places.length === 0) {
                 this.setEngineStatus('Mesin Lokal Tidak Mendapat Data', result.error || 'Tidak ada data asli yang berhasil ditarik.', 'Kosong', 'badge-red');
@@ -4611,8 +4708,7 @@ const ScraperClient = {
 
     async executeDorkingHunter() {
         const { category, location } = this.getActiveCategoryAndLocation();
-        const limitSelect = document.getElementById('scraper-batch-limit');
-        const limitVal = parseInt(limitSelect?.value || '25', 10) || 25;
+        const limitVal = this.getActiveBatchLimit();
 
         if (this.isStaticHost()) {
             this.showStaticHostRealNotice('Sosmed & Direct WA Hunter');
@@ -4793,8 +4889,8 @@ const ScraperClient = {
     },
 
     validateExtensionPayload(documentData) {
-        if (!documentData || !Array.isArray(documentData.records) || documentData.records.length < 1 || documentData.records.length > 500) {
-            throw new Error('JSON harus berisi records sebanyak 1–500 data.');
+        if (!documentData || !Array.isArray(documentData.records) || documentData.records.length < 1 || documentData.records.length > 5000) {
+            throw new Error('JSON harus berisi records sebanyak 1–5000 data.');
         }
         const isMaps = documentData.records.every(record => {
             if (!record || !['google_maps_extension', 'browser_manual'].includes(record.source_type || documentData.source?.source_type)) return false;
@@ -4860,7 +4956,7 @@ const ScraperClient = {
         const status = document.getElementById('public-source-status');
         let items = null;
 
-        if (!this.isStaticHost()) {
+        if (!this.isStaticHost() && documentData.records.length <= 500) {
             const response = await fetch('api/source_import.php', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
