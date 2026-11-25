@@ -43,6 +43,7 @@ assert.ok(cloudScraperPhp.includes('googlePlacesSearch($cat, $loc, $lat, $lng'),
 assert.ok(cloudScraperPhp.includes("'attempt_log' =>"), 'api/cloud_scraper.php must report attempt_log per provider');
 assert.ok(localJs.includes('button[data-item-id^="phone:tel:"]'), 'local_headless_scraper.js must inspect detail pane phone selector');
 assert.ok(localJs.includes("getArg('urls-file'"), 'local_headless_scraper.js must support --urls-file batch mode');
+assert.ok(localJs.includes("updateProgress('collecting_links'"), 'local_headless_scraper.js must run 2-phase link collection + extraction');
 assert.ok(localJs.includes('failover_to_api'), 'local_headless_scraper.js must preserve 45s failover_to_api');
 
 // 5. Evaluate ScraperClient in VM to verify static host refusal, Hybrid Merge separation, and clean dropdowns
@@ -100,6 +101,17 @@ client.executeHybridScrape().then(async () => {
     assert.equal(client.scrapedResults.length, 1, 'Extension JSON import must work even on static GitHub Pages host');
     assert.equal(client.scrapedResults[0].name, 'Cafe Nyata Ekstensi');
     assert.equal(client.scrapedResults[0].insights.metrics.rating_available, true);
+
+    // Spreadsheet Amapulse row transfer parser check
+    const sheetLeads = client.parseAmapulseSheetRows([
+        { Title: 'Kedai Suka', 'Phone Number': '08120000999', Address: 'Jl. Tidar No. 5', 'Google Maps URL': 'https://www.google.com/maps/place/Kedai+Suka', Rating: '4.7', Reviews: '310' },
+        { Title: 'Tanpa Rating', Address: 'Magelang' }
+    ]);
+    assert.equal(sheetLeads.length, 2);
+    assert.equal(sheetLeads[0].phone, '08120000999');
+    assert.equal(sheetLeads[0].insights.metrics.rating_available, true);
+    assert.equal(sheetLeads[1].phone, '');
+    assert.equal(sheetLeads[1].insights.metrics.rating_available, false);
 
     console.log('✓ All Honest Multi-Engine UI, Telemetry, Amapulse URL Batch & Extension Bridge tests passed successfully!');
 }).catch(err => {

@@ -274,6 +274,16 @@
       </button>
     </form>
 
+    <div id="admin-local-demo-hint" style="display: none; margin-top: 14px; background: #eff6ff; border: 1px dashed #93c5fd; border-radius: 10px; padding: 10px 12px; font-size: 0.74rem; color: #1e3a8a; line-height: 1.45;">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+        <div>
+          <strong>Akun Demo Lokal (Admin):</strong><br>
+          Username: <code>admin</code> · Password: <code>admin123</code>
+        </div>
+        <button type="button" id="btn-fill-admin-demo" style="border: 1px solid #2563eb; background: #fff; color: #1d4ed8; font-size: 0.72rem; font-weight: 600; border-radius: 6px; padding: 4px 10px; cursor: pointer;">Isi Otomatis</button>
+      </div>
+    </div>
+
     <!-- Footer Links -->
     <div class="admin-footer-links">
       <a href="index.html">
@@ -311,6 +321,17 @@
     // Toggle Password Visibility
     const btnTogglePwd = document.getElementById('btn-toggle-admin-pwd');
     const inputPwd = document.getElementById('admin-password');
+    if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      const hintBox = document.getElementById('admin-local-demo-hint');
+      const fillBtn = document.getElementById('btn-fill-admin-demo');
+      if (hintBox) hintBox.style.display = 'block';
+      if (fillBtn) {
+        fillBtn.addEventListener('click', () => {
+          document.getElementById('admin-account').value = 'admin';
+          document.getElementById('admin-password').value = 'admin123';
+        });
+      }
+    }
     if (btnTogglePwd && inputPwd) {
       btnTogglePwd.addEventListener('click', () => {
         const isPwd = inputPwd.type === 'password';

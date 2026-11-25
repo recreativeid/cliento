@@ -440,10 +440,10 @@ async function main() {
         return { failover: false, place: null };
     }
 
-    if (batchUrls.length > 0) {
-        const targets = batchUrls.slice(0, limit);
-        console.log(`Mode Batch Link Google Maps (Ala Amapulse): ${targets.length} link siap diekstrak...`);
+    async function extractBatchTargets(urlList, labelPrefix = '') {
+        const targets = urlList.slice(0, limit);
         for (let idx = 0; idx < targets.length; idx++) {
+            if (collectedPlaces.length >= limit) break;
             const rawUrl = targets[idx];
             const targetUrl = rawUrl.includes('hl=') ? rawUrl : (rawUrl + (rawUrl.includes('?') ? '&' : '?') + 'hl=id');
             const prevHrefRes = await send('Runtime.evaluate', { expression: 'window.location.href', returnByValue: true }).catch(() => null);
@@ -466,135 +466,92 @@ async function main() {
             }
 
             if (res.place) {
+                if (!res.place.google_maps_url || !res.place.google_maps_url.includes('/maps/place/')) {
+                    res.place.google_maps_url = rawUrl;
+                }
                 savePlaceIncrementally(res.place);
             } else {
-                console.log(`[Lewati] (${idx + 1}/${targets.length}) Tidak dapat membaca detail tempat: ${rawUrl}`);
+                console.log(`[Lewati]${labelPrefix} (${idx + 1}/${targets.length}) Tidak dapat membaca detail tempat: ${rawUrl}`);
             }
         }
     }
 
-    for (let round = 0; batchUrls.length === 0 && round < maxRounds; round++) {
-        if (collectedPlaces.length >= limit) {
-            console.log(`\n Target tercapai: ${collectedPlaces.length}/${limit} data real berhasil dikumpulkan!`);
-            break;
-        }
+    if (batchUrls.length > 0) {
+        console.log(`Mode Batch Link Google Maps (Ala Amapulse): ${Math.min(limit, batchUrls.length)} link siap diekstrak...`);
+        await extractBatchTargets(batchUrls);
+    } else {
+        // 2-Phase Search Pipeline (Exact Amapulse Flow Directly Inside Web):
+        // Phase 1: Scroll Google Maps feed & auto-collect clean /maps/place/ links
+        // Phase 2: Visit each collected link via extractBatchTargets() for reliable per-column extraction
+        console.log(`[Tahap 1/2] Mencari & menyalin link Google Maps otomatis untuk "${query}"...`);
+        updateProgress('collecting_links', 0, false);
 
-        const capState = await checkAndHandleCaptcha();
-        if (capState === 'failover') break;
+        const autoCollectedLinks = [];
+        const seenLinkKeys = new Set();
+        let linkIdleRounds = 0;
 
-        // Gather unseen card links in Google Maps feed
-        const candidatesRes = await send('Runtime.evaluate', {
-            returnByValue: true,
-            expression: `(() => {
-                const feed = document.querySelector('[role="feed"]');
-                if (!feed) return [];
-                const list = [];
-                const seen = new Set();
-                feed.querySelectorAll('a[href*="/maps/place/"]').forEach((a, idx) => {
-                    const href = a.href || '';
-                    const m = href.match(/!1s([^!/?]+)/);
-                    const key = m ? m[1] : href.split('?')[0];
-                    if (!key || seen.has(key)) return;
-                    seen.add(key);
-                    const name = (a.getAttribute('aria-label') || a.textContent || '').trim();
-                    if (!name) return;
-                    list.push({ key, name, href });
-                });
-                return list;
-            })()`
-        });
+        for (let round = 0; round < 18 && autoCollectedLinks.length < limit; round++) {
+            const capState = await checkAndHandleCaptcha();
+            if (capState === 'failover') break;
 
-        const candidates = (candidatesRes.result?.value || []).filter(c => !visitedKeys.has(c.key));
-        let openedAny = false;
+            await sleep(round === 0 ? 1800 : 1200);
+            const scanRes = await send('Runtime.evaluate', {
+                returnByValue: true,
+                expression: `(() => {
+                    const feed = document.querySelector('[role="feed"]');
+                    const h1 = Array.from(document.querySelectorAll('h1.DUwDvf, h1.fontHeadlineLarge')).find(el => el.getClientRects().length > 0);
+                    if (!feed) {
+                        return { hasFeed: false, hasSingleH1: !!(h1 && (h1.innerText || '').trim()), links: [] };
+                    }
+                    const links = [];
+                    feed.querySelectorAll('a[href*="/maps/place/"]').forEach(a => {
+                        const href = a.href || '';
+                        const m = href.match(/!1s([^!/?]+)/);
+                        const key = m ? m[1] : href.split('?')[0];
+                        if (key && href) links.push({ key, href });
+                    });
+                    const atEnd = /akhir daftar|end of the list|reached the end/i.test(feed.innerText || '');
+                    return { hasFeed: true, hasSingleH1: false, links, atEnd };
+                })()`
+            });
 
-        for (const cand of candidates) {
-            if (collectedPlaces.length >= limit) break;
-            visitedKeys.add(cand.key);
-            openedAny = true;
-
-            const capInner = await checkAndHandleCaptcha();
-            if (capInner === 'failover') {
-                round = maxRounds;
+            const scan = scanRes.result?.value || {};
+            if (!scan.hasFeed && scan.hasSingleH1) {
+                const singlePlace = await extractOpenPlaceDetail();
+                if (singlePlace && singlePlace.name) {
+                    savePlaceIncrementally(singlePlace);
+                }
                 break;
             }
 
-            // Capture current visible heading before clicking so we detect transition cleanly
-            const prevStateRes = await send('Runtime.evaluate', {
-                returnByValue: true,
+            let addedThisRound = 0;
+            for (const item of (scan.links || [])) {
+                if (seenLinkKeys.has(item.key)) continue;
+                seenLinkKeys.add(item.key);
+                autoCollectedLinks.push(item.href);
+                addedThisRound++;
+                if (autoCollectedLinks.length >= limit) break;
+            }
+
+            console.log(`[Tahap 1/2] Tersalin otomatis ${autoCollectedLinks.length}/${limit} link Google Maps...`);
+            updateProgress('collecting_links', collectedPlaces.length, false);
+
+            if (autoCollectedLinks.length >= limit || scan.atEnd) break;
+            if (addedThisRound === 0) linkIdleRounds++;
+            else linkIdleRounds = 0;
+            if (linkIdleRounds >= 4) break;
+
+            await send('Runtime.evaluate', {
                 expression: `(() => {
-                    const h1 = Array.from(document.querySelectorAll('h1.DUwDvf, h1.fontHeadlineLarge')).find(el => el.getClientRects().length > 0);
-                    return { name: h1 ? (h1.innerText || '').trim() : '', href: window.location.href };
+                    const feed = document.querySelector('[role="feed"]');
+                    if (feed) feed.scrollBy(0, 1400);
                 })()`
             });
-            const prevName = prevStateRes.result?.value?.name || '';
-            const prevHref = prevStateRes.result?.value?.href || '';
-
-            // Click matching card in DOM using canonical Place ID key or href
-            const clickedRes = await send('Runtime.evaluate', {
-                returnByValue: true,
-                expression: `(() => {
-                    const links = Array.from(document.querySelectorAll('[role="feed"] a[href*="/maps/place/"]'));
-                    const target = links.find(a => {
-                        const h = a.href || '';
-                        return h === ${JSON.stringify(cand.href)} || h.includes(${JSON.stringify(cand.key)});
-                    });
-                    if (target) {
-                        target.scrollIntoView({ block: 'center' });
-                        target.click();
-                        return true;
-                    }
-                    return false;
-                })()`
-            });
-            if (!clickedRes.result?.value) continue;
-
-            // Poll up to 4.2s for detail pane AND URL to actually switch to the clicked card
-            let transitioned = false;
-            for (let t = 0; t < 17; t++) {
-                await sleep(250);
-                const chk = await send('Runtime.evaluate', {
-                    returnByValue: true,
-                    expression: `(() => {
-                        const h1 = Array.from(document.querySelectorAll('h1.DUwDvf, h1.fontHeadlineLarge')).find(el => el.getClientRects().length > 0);
-                        return { name: h1 ? (h1.innerText || '').trim() : '', href: window.location.href };
-                    })()`
-                });
-                const curName = chk.result?.value?.name || '';
-                const curHref = chk.result?.value?.href || '';
-                if (curName && curName !== prevName && curHref !== prevHref && curHref.includes('/maps/place/')) {
-                    transitioned = true;
-                    break;
-                }
-            }
-            if (!transitioned) {
-                await sleep(400);
-            }
-
-            // Read ONLY observed fields from the active [role="main"] detail pane
-            const place = await extractOpenPlaceDetail();
-            if (place && place.name) {
-                savePlaceIncrementally(place);
-            }
         }
 
-        if (collectedPlaces.length >= limit) break;
-
-        // Scroll feed down to load more genuine places
-        await send('Runtime.evaluate', {
-            expression: `(() => {
-                const feed = document.querySelector('div[role="feed"]');
-                if (feed) feed.scrollBy(0, 1200);
-                else window.scrollBy(0, 1000);
-            })()`
-        });
-        await sleep(1600);
-
-        if (!openedAny) idleRounds++;
-        else idleRounds = 0;
-
-        if (idleRounds >= 6) {
-            console.log('Tidak ada hasil baru yang muncul di Google Maps setelah beberapa putaran scroll.');
-            break;
+        if (autoCollectedLinks.length > 0 && !fs.existsSync(failoverFile)) {
+            console.log(`[Tahap 2/2] Mengekstrak data per kolom dari ${autoCollectedLinks.length} link (ala Amapulse)...`);
+            await extractBatchTargets(autoCollectedLinks, ' [Auto-Link]');
         }
     }
 

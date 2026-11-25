@@ -84,28 +84,51 @@ define('SUPABASE_URL', $supabaseUrl);
 define('SUPABASE_KEY', $supabaseKey);
 
 $dbConnected = false;
+$dbMode = 'none';
 
-// 1. Supabase Cloud PostgreSQL Connection (Single Source of Truth; skipped for DB-free scraper actions)
+// 1. Supabase Cloud PostgreSQL Connection with fast unreachable cache + automatic Local SQLite Fallback
 if (!defined('SKIP_DB_CONNECT')) {
-    if (!empty($supabaseHost) && extension_loaded('pdo_pgsql')) {
+    $pgCacheFile = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'cliento_pg_unavailable.flag';
+    $skipRemotePg = @file_exists($pgCacheFile) && (time() - (int)@file_get_contents($pgCacheFile)) < 60;
+
+    if (!empty($supabaseHost) && extension_loaded('pdo_pgsql') && !$skipRemotePg) {
         try {
             $dsn = "pgsql:host={$supabaseHost};port={$supabasePort};dbname={$supabaseDb};sslmode=require";
             $pdo = new PDO($dsn, $supabaseUser, $supabasePass, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_TIMEOUT => 15
+                PDO::ATTR_TIMEOUT => 2
             ]);
             $dbConnected = true;
+            $dbMode = 'pgsql';
+            if (@file_exists($pgCacheFile)) @unlink($pgCacheFile);
         } catch (PDOException $e) {
+            @file_put_contents($pgCacheFile, (string)time());
             error_log("Supabase Cloud connection error: " . $e->getMessage());
         }
     }
 
+    if (!$dbConnected && extension_loaded('pdo_sqlite')) {
+        try {
+            $storageDir = __DIR__ . '/storage';
+            if (!is_dir($storageDir)) @mkdir($storageDir, 0775, true);
+            $sqlitePath = $storageDir . '/cliento_local.sqlite';
+            $pdo = new PDO('sqlite:' . $sqlitePath, null, null, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+            ]);
+            $pdo->exec('PRAGMA foreign_keys = ON;');
+            $dbConnected = true;
+            $dbMode = 'sqlite';
+        } catch (PDOException $e) {
+            error_log("Local SQLite connection error: " . $e->getMessage());
+        }
+    }
+
     if (!$dbConnected) {
-        // If running in development without internet, report clear guidance
         jsonResponse([
             'success' => false,
-            'message' => 'Gagal terhubung ke Supabase Cloud PostgreSQL. Pastikan koneksi internet aktif dan kredensial di config.local.php sudah benar.'
+            'message' => 'Gagal terhubung ke Supabase Cloud maupun database SQLite lokal. Pastikan pdo_sqlite atau koneksi PostgreSQL aktif.'
         ], 500);
     }
 }
@@ -129,50 +152,101 @@ define('SERPAPI_API_KEY', $serpApiKey);
 define('APP_NAME', 'cliento');
 define('APP_SUBTITLE', 'sales intelligence');
 
-// Auto-check and create users & otps tables if not exist
+// Auto-check and create local SQLite schema + seed default accounts if running on SQLite
 if ($dbConnected && isset($pdo)) {
 try {
-    $pdo->exec("
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        role TEXT NOT NULL DEFAULT 'customer',
-        username TEXT UNIQUE DEFAULT NULL,
-        name TEXT NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        phone TEXT DEFAULT '',
-        password_hash TEXT NOT NULL,
-        status TEXT DEFAULT 'active',
-        is_verified INTEGER DEFAULT 0,
-        avatar TEXT DEFAULT '',
-        token TEXT DEFAULT '',
-        last_login DATETIME DEFAULT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS email_otps (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER DEFAULT NULL,
-        email TEXT NOT NULL,
-        otp_code TEXT NOT NULL,
-        type TEXT DEFAULT 'register',
-        expires_at DATETIME NOT NULL,
-        is_used INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS system_settings (
-        setting_key TEXT PRIMARY KEY,
-        setting_value TEXT,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    ");
-
-    // Ensure username and user_id columns exist across tables
-    try { $pdo->exec("ALTER TABLE users ADD COLUMN username TEXT DEFAULT NULL;"); } catch (Exception $e) {}
-    try { $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL;"); } catch (Exception $e) {}
-    try { $pdo->exec("ALTER TABLE folders ADD COLUMN user_id INTEGER DEFAULT NULL;"); } catch (Exception $e) {}
-    try { $pdo->exec("ALTER TABLE archives ADD COLUMN user_id INTEGER DEFAULT NULL;"); } catch (Exception $e) {}
-    try { $pdo->exec("ALTER TABLE scraping_history ADD COLUMN user_id INTEGER DEFAULT NULL;"); } catch (Exception $e) {}
-    try { $pdo->exec("ALTER TABLE scraped_items ADD COLUMN insights_json TEXT DEFAULT NULL;"); } catch (Exception $e) {}
+    $activeDriver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($activeDriver === 'sqlite') {
+        $pdo->exec("
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT NOT NULL DEFAULT 'customer',
+            username TEXT UNIQUE DEFAULT NULL,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            phone TEXT DEFAULT '',
+            password_hash TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            is_verified INTEGER DEFAULT 0,
+            avatar TEXT DEFAULT '',
+            token TEXT DEFAULT '',
+            last_login DATETIME DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS email_otps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER DEFAULT NULL,
+            email TEXT NOT NULL,
+            otp_code TEXT NOT NULL,
+            type TEXT DEFAULT 'register',
+            expires_at DATETIME NOT NULL,
+            is_used INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS system_settings (
+            setting_key TEXT PRIMARY KEY,
+            setting_value TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS folders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_id INTEGER DEFAULT NULL,
+            name TEXT NOT NULL,
+            user_id INTEGER DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS archives (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            folder_id INTEGER DEFAULT NULL,
+            name TEXT NOT NULL,
+            total_items INTEGER DEFAULT 0,
+            notes TEXT DEFAULT '',
+            user_id INTEGER DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS scraping_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            query_name TEXT NOT NULL,
+            method TEXT NOT NULL,
+            location_name TEXT NOT NULL,
+            target_category TEXT NOT NULL,
+            total_found INTEGER DEFAULT 0,
+            user_id INTEGER DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS scraped_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            archive_id INTEGER DEFAULT NULL,
+            history_id INTEGER DEFAULT NULL,
+            name TEXT NOT NULL,
+            address TEXT NOT NULL,
+            phone TEXT DEFAULT '',
+            lat REAL DEFAULT 0,
+            lng REAL DEFAULT 0,
+            category TEXT DEFAULT '',
+            social_media TEXT DEFAULT '',
+            opening_hours TEXT DEFAULT '',
+            rating REAL DEFAULT 0,
+            reviews_count INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'none',
+            insights_json TEXT DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_name TEXT UNIQUE NOT NULL,
+            greeting_type TEXT DEFAULT 'formal',
+            message_body TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        ");
+    }
 
     // Seed default admin if empty
     $chkAdmin = $pdo->query("SELECT id FROM users WHERE role = 'admin' LIMIT 1")->fetch();
@@ -189,6 +263,24 @@ try {
 
         $sitiStmt = $pdo->prepare("INSERT INTO users (role, username, name, email, phone, password_hash, status, is_verified) VALUES ('customer', 'siti', 'Siti Nurhaliza', 'siti@example.com', '081299887766', ?, 'active', 1)");
         $sitiStmt->execute([password_hash('secret123', PASSWORD_DEFAULT)]);
+    }
+
+    // Seed default templates if empty
+    if ($activeDriver === 'sqlite') {
+        $chkTpl = $pdo->query("SELECT id FROM templates LIMIT 1")->fetch();
+        if (!$chkTpl) {
+            $tplSeed = $pdo->prepare("INSERT OR IGNORE INTO templates (category_name, greeting_type, message_body) VALUES (?, ?, ?)");
+            $tplSeed->execute(['Cafe', 'formal', 'Hallo kak dgn pemilik/team manajemen {nama_tempat}? Kami dari tim cliento melihat perkembangan cafe kakak di {alamat} sangat menarik. Ada waktu 5 menit untuk sharing optimasi prospek?']);
+            $tplSeed->execute(['Resto', 'humas', 'Selamat siang bapak/ibu manajemen {nama_tempat} di {alamat}. Kami ingin berbagi solusi otomasi data pelanggan & outreach B2B. Boleh kami kirimkan detail singkatnya?']);
+            $tplSeed->execute(['Bengkel', 'casual', 'Halo kak {nama_tempat}! Kami melihat profil bengkel kakak di {alamat} sangat bagus. Tertarik melihat demo perluasan pelanggan digital?']);
+        }
+        $chkCat = $pdo->query("SELECT id FROM categories LIMIT 1")->fetch();
+        if (!$chkCat) {
+            $catSeed = $pdo->prepare("INSERT OR IGNORE INTO categories (name) VALUES (?)");
+            foreach (['Cafe & Coffee Shop', 'Restoran & Kuliner', 'Bengkel & Otomotif', 'Jasa Laundry & Cuci', 'Salon & Barbershop', 'Klinik & Rumah Sakit'] as $cn) {
+                $catSeed->execute([$cn]);
+            }
+        }
     }
 } catch (Exception $e) {
     // Ignore if table already exists or locked

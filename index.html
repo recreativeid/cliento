@@ -79,12 +79,25 @@
           </button>
         </form>
 
-        <!-- Penempatan Tombol Buat Akun Baru di Bagian Bawah -->
-        <div style="text-align: center; margin-top: 20px; padding-top: 16px; border-top: 1px solid #f1f5f9; font-size: 0.82rem; color: #64748b;">
+        <!-- Penempatan Tombol Buat Akun Baru & Portal Admin di Bagian Bawah -->
+        <div id="gate-local-demo-hint" style="display: none; margin-top: 14px; background: #eff6ff; border: 1px dashed #93c5fd; border-radius: 10px; padding: 10px 12px; font-size: 0.74rem; color: #1e3a8a; line-height: 1.45;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div>
+              <strong><i class="fa-solid fa-key"></i> Akun Demo Lokal (Customer):</strong><br>
+              Username: <code>customer</code> · Password: <code>customer123</code>
+            </div>
+            <button type="button" id="gate-btn-fill-demo-user" class="btn btn-outline btn-sm" style="font-size: 0.70rem; padding: 4px 9px; background: #fff;">Isi Otomatis</button>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 18px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 0.80rem; color: #64748b;">
           Belum memiliki akun cliento?
-          <button type="button" id="gate-btn-to-register" style="background: none; border: none; color: #2563eb; font-weight: 700; cursor: pointer; padding: 0 4px; font-size: 0.82rem; text-decoration: underline;">
+          <button type="button" id="gate-btn-to-register" style="background: none; border: none; color: #2563eb; font-weight: 700; cursor: pointer; padding: 0 4px; font-size: 0.80rem; text-decoration: underline;">
             Buat Akun Baru
           </button>
+          <div style="margin-top: 8px; font-size: 0.74rem;">
+            Login sebagai Administrator? <a href="admin.html" style="color: #0f172a; font-weight: 700; text-decoration: underline;">Masuk ke Portal Admin (admin.html)</a>
+          </div>
         </div>
       </div>
 
@@ -509,6 +522,12 @@
                 <div style="font-size: 0.62rem; color: #64748b; margin-top: 5px; line-height: 1.35;">
                   Otomatis mengambil Nama, HP/WA, Alamat, Website, Rating, Ulasan, Jam Buka &amp; Koordinat per link lewat Chrome lokal.
                 </div>
+                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #cbd5e1;">
+                  <label for="amapulse-sheet-file" style="font-size: 0.63rem; font-weight: 700; color: #334155; display: block; margin-bottom: 3px;">
+                    📄 Atau Transfer File Spreadsheet Amapulse / Google Sheets (.csv / .xlsx):
+                  </label>
+                  <input type="file" id="amapulse-sheet-file" accept=".csv,.xlsx,.xls" style="font-size: 0.66rem; width: 100%;">
+                </div>
               </div>
 
               <div id="target-preset-box" style="display: block; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
@@ -812,6 +831,9 @@
               </button>
               <button class="btn btn-outline btn-sm btn-show-history-trigger" id="btn-show-history-results">
                 <i class="fa-solid fa-clock-rotate-left" style="color: #2563eb;"></i> Riwayat Scraping
+              </button>
+              <button class="btn btn-outline btn-sm" id="btn-copy-all-gmaps-links" title="Salin seluruh link Google Maps untuk Amapulse Spreadsheet">
+                <i class="fa-solid fa-link" style="color: #2563eb;"></i> Salin Link Gmaps
               </button>
               <button class="btn btn-outline btn-sm" id="btn-export-excel">
                 <i class="fa-solid fa-file-excel" style="color: #16a34a;"></i> Download Excel

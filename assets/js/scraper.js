@@ -3560,6 +3560,21 @@ const ScraperClient = {
             btnExportExcel.addEventListener('click', () => this.exportScrapedToExcel());
         }
 
+        const btnCopyGmapsLinks = document.getElementById('btn-copy-all-gmaps-links');
+        if (btnCopyGmapsLinks) {
+            btnCopyGmapsLinks.addEventListener('click', () => this.copyAllGoogleMapsLinks());
+        }
+
+        const sheetFileInput = document.getElementById('amapulse-sheet-file');
+        if (sheetFileInput) {
+            sheetFileInput.addEventListener('change', async () => {
+                const f = sheetFileInput.files?.[0];
+                if (!f) return;
+                await this.handleAmapulseSheetUpload(f);
+                sheetFileInput.value = '';
+            });
+        }
+
         const btnSaveArchive = document.getElementById('btn-save-to-archive-modal');
         if (btnSaveArchive) {
             btnSaveArchive.addEventListener('click', () => this.openSaveArchiveModal());
@@ -4137,6 +4152,17 @@ const ScraperClient = {
                             50
                         );
                         if (onUpdate) onUpdate({ phase: 'captcha', count: st.collected_count || 0 });
+                    } else if (st.status === 'collecting_links') {
+                        idleCount = 0;
+                        this.setEngineStatus(
+                            'Tahap 1/2 · Menyalin Link Google Maps Otomatis...',
+                            'Chrome lokal sedang mencari target di Google Maps &amp; mengumpulkan tautan tempat secara otomatis sebelum ekstraksi per kolom.',
+                            'Kumpulkan Link',
+                            'badge-blue',
+                            true,
+                            18
+                        );
+                        if (onUpdate) onUpdate({ phase: 'collecting_links', count: 0 });
                     } else if (st.status === 'running' || st.status === 'loading_maps' || st.status === 'starting_browser') {
                         idleCount = 0;
                         const count = st.collected_count || 0;
@@ -4652,6 +4678,105 @@ const ScraperClient = {
             ratingAvailable: observed ? observed.rating_available === true : Number(item.rating) > 0,
             reviewsAvailable: observed ? observed.reviews_count_available === true : Number(item.rating) > 0
         };
+    },
+
+    parseAmapulseSheetRows(rows = []) {
+        const pick = (obj, keys) => {
+            const entries = Object.entries(obj || {});
+            for (const want of keys) {
+                const hit = entries.find(([k]) => k.toLowerCase().trim() === want || k.toLowerCase().trim().includes(want));
+                if (hit && String(hit[1] ?? '').trim() !== '') return String(hit[1]).trim();
+            }
+            return '';
+        };
+        const out = [];
+        (rows || []).forEach((row, idx) => {
+            const name = pick(row, ['name', 'title', 'nama usaha', 'nama tempat', 'nama', 'business']);
+            const mapsUrl = pick(row, ['google maps url', 'maps url', 'url sumber', 'source_url', 'link', 'url']);
+            const phone = pick(row, ['phone', 'telepon', 'telp', 'nomor hp', 'no hp', 'whatsapp', 'hp']);
+            if (!name && !mapsUrl) return;
+            const ratingNum = parseFloat(pick(row, ['rating', 'stars', 'bintang']).replace(',', '.')) || 0;
+            const reviewsNum = parseInt(pick(row, ['reviews', 'review_count', 'reviews_count', 'ulasan']).replace(/[^\d]/g, ''), 10) || 0;
+            const latVal = parseFloat(pick(row, ['latitude', 'lat'])) || null;
+            const lngVal = parseFloat(pick(row, ['longitude', 'lng', 'lon'])) || null;
+            const website = pick(row, ['website', 'site', 'web', 'medsos']);
+            out.push({
+                id: idx + 1,
+                name: name || 'Bisnis dari Spreadsheet',
+                category: pick(row, ['category', 'type', 'kategori']) || 'Google Maps',
+                address: pick(row, ['full address', 'address', 'alamat', 'lokasi']) || '-',
+                phone,
+                whatsapp: phone && /^(\+?628|08)/.test(phone.replace(/[^\d+]/g, '')) ? phone : '',
+                website,
+                social_media: website,
+                opening_hours: pick(row, ['hours', 'opening hours', 'jam operasional', 'jam']),
+                rating: ratingNum,
+                reviews_count: reviewsNum,
+                lat: latVal,
+                lng: lngVal,
+                google_maps_url: mapsUrl,
+                source: 'amapulse_sheet',
+                source_type: 'google_maps',
+                source_name: 'Spreadsheet Amapulse',
+                insights: {
+                    provenance: {
+                        source_name: 'Spreadsheet Amapulse (CSV/XLSX)',
+                        source_type: 'google_maps',
+                        source_url: mapsUrl,
+                        usage_basis: 'Impor spreadsheet oleh pengguna'
+                    },
+                    metrics: {
+                        rating_available: ratingNum > 0,
+                        reviews_count_available: reviewsNum > 0
+                    },
+                    contact: {
+                        phone_listed: Boolean(phone),
+                        whatsapp_listed: false,
+                        website_listed: Boolean(website)
+                    }
+                }
+            });
+        });
+        return out;
+    },
+
+    async handleAmapulseSheetUpload(file) {
+        if (typeof XLSX === 'undefined') {
+            this.setEngineStatus('Parser Spreadsheet Belum Siap', 'Library SheetJS (XLSX) belum termuat.', 'Error', 'badge-red', false);
+            return;
+        }
+        try {
+            const buf = await file.arrayBuffer();
+            const wb = XLSX.read(buf, { type: 'array' });
+            const firstSheet = wb.Sheets[wb.SheetNames[0]];
+            const rawRows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+            const parsed = this.parseAmapulseSheetRows(rawRows);
+            if (!parsed.length) {
+                throw new Error('Tidak ditemukan kolom Name/Title atau URL di file spreadsheet.');
+            }
+            this.showScrapedResultsPage(parsed, 'Impor Spreadsheet Amapulse', file.name);
+            if (this.showToast) this.showToast(`✅ Berhasil mentransfer ${parsed.length} data dari spreadsheet Amapulse ke web!`);
+        } catch (err) {
+            this.setEngineStatus('Gagal Impor Spreadsheet', err.message, 'Error', 'badge-red', false);
+        }
+    },
+
+    async copyAllGoogleMapsLinks() {
+        const links = (this.scrapedResults || [])
+            .map(it => it.google_maps_url || it.insights?.provenance?.source_url || '')
+            .filter(u => /^https?:\/\//i.test(u));
+        const unique = [...new Set(links)];
+        if (!unique.length) {
+            if (this.showToast) this.showToast('Belum ada tautan Google Maps pada tabel hasil.');
+            return;
+        }
+        const text = unique.join('\n');
+        try {
+            await navigator.clipboard.writeText(text);
+            if (this.showToast) this.showToast(`✅ ${unique.length} link Google Maps tersalin! Siap ditempel ke Amapulse/Spreadsheet.`);
+        } catch (_) {
+            window.prompt('Salin daftar link Google Maps di bawah ini:', text);
+        }
     },
 
     validateExtensionPayload(documentData) {

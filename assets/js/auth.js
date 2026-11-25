@@ -259,6 +259,21 @@ const Auth = {
             });
         }
 
+        // Local Demo Hint (only shown on localhost / 127.0.0.1)
+        if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+            const localHint = document.getElementById('gate-local-demo-hint');
+            const fillDemoBtn = document.getElementById('gate-btn-fill-demo-user');
+            if (localHint) localHint.style.display = 'block';
+            if (fillDemoBtn) {
+                fillDemoBtn.addEventListener('click', () => {
+                    const acc = document.getElementById('gate-user-login-account');
+                    const pwd = document.getElementById('gate-user-login-password');
+                    if (acc) acc.value = 'customer';
+                    if (pwd) pwd.value = 'customer123';
+                });
+            }
+        }
+
         // Gate Form: User Login
         const gateFormUserLogin = document.getElementById('gate-form-user-login');
         if (gateFormUserLogin) {
