@@ -455,9 +455,9 @@ body {
   align-items: start;
 }
 
-@media (min-width: 992px) {
+@media (min-width: 860px) {
   .scraper-split-container {
-    grid-template-columns: 460px 1fr;
+    grid-template-columns: minmax(360px, 430px) 1fr;
     gap: 20px;
   }
 }
@@ -468,6 +468,7 @@ body {
   border-radius: var(--radius-md);
   padding: 18px;
   box-shadow: var(--shadow-subtle);
+  min-width: 0;
 }
 
 .scraper-right-panel {
@@ -478,6 +479,7 @@ body {
   box-shadow: var(--shadow-subtle);
   position: sticky;
   top: 76px;
+  min-width: 0;
 }
 
 .map-container-unified {
@@ -489,9 +491,10 @@ body {
   position: relative;
 }
 
-@media (min-width: 992px) {
+@media (min-width: 860px) {
   .map-container-unified {
-    height: 540px;
+    height: calc(100vh - 150px);
+    min-height: 540px;
   }
 }
 

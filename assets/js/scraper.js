@@ -631,6 +631,7 @@ const ScraperClient = {
         } else {
             Object.values(sectorCounts).forEach(c => { totalAllPlaces += (c || 0); });
         }
+        const showCounts = totalAllPlaces > 0;
 
         const keys = Object.keys(this.SECTORS_DATA).filter(k => k !== 'semua_bidang');
         // Sort sectors descending by place count so sectors with active businesses are prominent
@@ -644,20 +645,16 @@ const ScraperClient = {
         keys.unshift('semua_bidang');
 
         sectorSelect.innerHTML = '';
-        let topKeyWithData = null;
 
-        keys.forEach((key, idx) => {
+        keys.forEach((key) => {
             const sectorInfo = this.SECTORS_DATA[key];
             if (!sectorInfo) return;
             const count = (key === 'semua_bidang') ? totalAllPlaces : (sectorCounts[key] || 0);
             const opt = document.createElement('option');
             opt.value = key;
-            opt.textContent = `${sectorInfo.name} (${count})`;
+            const cleanName = String(sectorInfo.name || '').replace(/\s*\(Semua Kategori\)\s*/i, '').trim();
+            opt.textContent = showCounts ? `${cleanName} (${count})` : cleanName;
             sectorSelect.appendChild(opt);
-
-            if (count > 0 && !topKeyWithData && key !== 'semua_bidang') {
-                topKeyWithData = key;
-            }
         });
 
         if (previousSelected && this.SECTORS_DATA[previousSelected]) {
@@ -673,12 +670,14 @@ const ScraperClient = {
         const presetSelect = document.getElementById('target-category-select');
         if (!presetSelect) return;
 
+        const hasTerritoryPlaces = !!(this.territoryData && this.territoryData.places && this.territoryData.places.length > 0);
+
         if (sectorKey === 'semua_bidang' || sectorKey === 'all') {
             presetSelect.innerHTML = '';
-            const totalPlaces = (this.territoryData && this.territoryData.places) ? this.territoryData.places.length : 0;
+            const totalPlaces = hasTerritoryPlaces ? this.territoryData.places.length : 0;
             const opt = document.createElement('option');
             opt.value = 'all';
-            opt.textContent = `Semua Jenis Bisnis (${totalPlaces})`;
+            opt.textContent = hasTerritoryPlaces ? `Semua Jenis Bisnis (${totalPlaces})` : 'Semua Jenis Bisnis';
             presetSelect.appendChild(opt);
             presetSelect.selectedIndex = 0;
             return;
@@ -702,8 +701,7 @@ const ScraperClient = {
                 count = subCounts[item.value] || 0;
             }
 
-            // Clean format: [Subcategory Label] ([Count]) - strictly without emojis!
-            opt.textContent = `${item.label} (${count})`;
+            opt.textContent = hasTerritoryPlaces ? `${item.label} (${count})` : item.label;
             presetSelect.appendChild(opt);
         });
 
@@ -1084,28 +1082,36 @@ const ScraperClient = {
         const sectorSelect = document.getElementById('target-sector-select');
         const presetSelect = document.getElementById('target-category-select');
 
-        // Populate initial categories
+        // Ensure both category and optional keyword are cleanly accessible
+        if (boxPreset) boxPreset.style.display = 'block';
+        if (boxKeyword) boxKeyword.style.display = 'block';
+
+        // Populate initial categories (without misleading (0) counts when unscanned)
         if (sectorSelect && presetSelect) {
             this.populateSectorsWithCounts();
         }
 
         if (sectorSelect) {
             sectorSelect.addEventListener('change', () => {
-                this.populateSubcategoriesWithCounts(sectorSelect.value);
-                if (this.currentQuery.targetMode === 'preset') {
-                    this.currentQuery.category = presetSelect ? presetSelect.value : sectorSelect.value;
-                    this.applyPresetFilter();
+                if (keywordInput && keywordInput.value.trim()) {
+                    keywordInput.value = '';
                 }
+                this.currentQuery.targetMode = 'preset';
+                this.populateSubcategoriesWithCounts(sectorSelect.value);
+                this.currentQuery.category = presetSelect ? presetSelect.value : sectorSelect.value;
+                this.applyPresetFilter();
                 this.updateTargetSummaryDisplay();
             });
         }
 
         if (presetSelect) {
             presetSelect.addEventListener('change', () => {
-                if (this.currentQuery.targetMode === 'preset') {
-                    this.currentQuery.category = presetSelect.value;
-                    this.applyPresetFilter();
+                if (keywordInput && keywordInput.value.trim()) {
+                    keywordInput.value = '';
                 }
+                this.currentQuery.targetMode = 'preset';
+                this.currentQuery.category = presetSelect.value;
+                this.applyPresetFilter();
                 this.updateTargetSummaryDisplay();
             });
         }
@@ -1113,38 +1119,14 @@ const ScraperClient = {
         if (btnKeyword && btnPreset) {
             btnKeyword.addEventListener('click', () => {
                 this.currentQuery.targetMode = 'keyword';
-                btnKeyword.classList.add('active');
-                btnPreset.classList.remove('active');
-                btnKeyword.style.background = '#0f172a';
-                btnKeyword.style.color = '#ffffff';
-                btnPreset.style.background = 'transparent';
-                btnPreset.style.color = '#64748b';
-
-                if (boxKeyword) boxKeyword.style.display = 'block';
-                if (boxPreset) boxPreset.style.display = 'none';
-
-                this.currentQuery.category = keywordInput ? keywordInput.value.trim() : 'sekolah';
-                this.loadPreScrapeCandidates();
+                if (keywordInput) keywordInput.focus();
                 this.updateTargetSummaryDisplay();
             });
 
             btnPreset.addEventListener('click', () => {
                 this.currentQuery.targetMode = 'preset';
-                btnPreset.classList.add('active');
-                btnKeyword.classList.remove('active');
-                btnPreset.style.background = '#0f172a';
-                btnPreset.style.color = '#ffffff';
-                btnKeyword.style.background = 'transparent';
-                btnKeyword.style.color = '#64748b';
-
-                if (boxPreset) boxPreset.style.display = 'block';
-                if (boxKeyword) boxKeyword.style.display = 'none';
-
-                if (this.territoryData) {
-                    this.applyPresetFilter();
-                } else {
-                    this.scanTerritory();
-                }
+                if (keywordInput) keywordInput.value = '';
+                this.applyPresetFilter();
                 this.updateTargetSummaryDisplay();
             });
         }
@@ -1155,42 +1137,42 @@ const ScraperClient = {
         const btnSearch = document.getElementById('btn-trigger-search');
         if (!input) return;
 
+        const applyKeywordOrFallback = () => {
+            const val = input.value.trim();
+            if (val) {
+                this.currentQuery.targetMode = 'keyword';
+                this.currentQuery.category = val;
+                this.loadPreScrapeCandidates();
+            } else {
+                this.currentQuery.targetMode = 'preset';
+                this.applyPresetFilter();
+            }
+            this.updateTargetSummaryDisplay();
+        };
+
         let debounce = null;
         input.addEventListener('input', () => {
             clearTimeout(debounce);
-            debounce = setTimeout(() => {
-                const val = input.value.trim();
-                if (val) {
-                    this.currentQuery.category = val;
-                    this.loadPreScrapeCandidates();
-                    this.updateTargetSummaryDisplay();
-                }
-            }, 400);
+            debounce = setTimeout(applyKeywordOrFallback, 300);
         });
 
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                const val = input.value.trim();
-                if (val) {
-                    this.currentQuery.category = val;
-                    this.loadPreScrapeCandidates();
-                    this.updateTargetSummaryDisplay();
-                }
+                clearTimeout(debounce);
+                applyKeywordOrFallback();
             }
         });
 
         if (btnSearch) {
             btnSearch.addEventListener('click', async (e) => {
                 e.preventDefault();
-                const val = input.value.trim();
-                this.currentQuery.category = val || 'cafe';
-                
+                clearTimeout(debounce);
                 const origHtml = btnSearch.innerHTML;
                 btnSearch.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
                 btnSearch.disabled = true;
                 try {
-                    await this.loadPreScrapeCandidates();
+                    applyKeywordOrFallback();
                 } finally {
                     btnSearch.innerHTML = origHtml;
                     btnSearch.disabled = false;
@@ -3366,12 +3348,14 @@ const ScraperClient = {
     // 6. DEEP SCRAPE ACTION & RESULTS TABLE
     // ----------------------------------------------------
     bindScrapingActions() {
-        // Satu Tombol Utama Ekstraksi Prospek
+        // Satu Tombol Utama Ekstraksi Prospek (Default: Otomatis Hybrid Maps + Sosmed WA)
         const btnMainExecute = document.getElementById('btn-main-execute-scrape');
         if (btnMainExecute) {
             btnMainExecute.addEventListener('click', () => {
-                const engine = document.querySelector('input[name="scrape_engine"]:checked')?.value || 'cloud';
-                if (engine === 'cloud') {
+                const engine = document.querySelector('input[name="scrape_engine"]:checked')?.value || 'hybrid';
+                if (engine === 'hybrid') {
+                    this.executeHybridScrape();
+                } else if (engine === 'cloud') {
                     this.executeCloudWaterfallScrape();
                 } else if (engine === 'local') {
                     this.executeLocalChromeScrape();
@@ -3383,11 +3367,12 @@ const ScraperClient = {
             });
         }
 
-        // Pilihan Mesin Pengambilan (4 Tiles Minimalis)
+        // Pilihan Mesin Pengambilan (Disimpan rapi di Opsi Lanjutan)
         const engineTiles = [
-            { id: 'tile-engine-cloud', val: 'cloud', label: 'Mulai Cari & Ambil Data Leads (Cloud API)', border: '#2563eb', bg: '#eff6ff' },
-            { id: 'tile-engine-local', val: 'local', label: 'Jalankan Mesin Otomatis (Laptop Sendiri)', border: '#059669', bg: '#ecfdf5' },
-            { id: 'tile-engine-dorking', val: 'dorking', label: 'Buru Nomor WhatsApp dari Media Sosial', border: '#9333ea', bg: '#faf5ff' },
+            { id: 'tile-engine-hybrid', val: 'hybrid', label: 'Mulai Cari Leads (Maps + Sosmed WA)', border: '#2563eb', bg: '#eff6ff' },
+            { id: 'tile-engine-cloud', val: 'cloud', label: 'Mulai Ekstraksi Cloud API Estafet', border: '#2563eb', bg: '#eff6ff' },
+            { id: 'tile-engine-local', val: 'local', label: 'Jalankan Mesin Lokal Chrome Laptop', border: '#059669', bg: '#ecfdf5' },
+            { id: 'tile-engine-dorking', val: 'dorking', label: 'Buru Nomor WA Sosmed Saja', border: '#7c3aed', bg: '#faf5ff' },
             { id: 'tile-engine-extension', val: 'extension', label: 'Buka Google Maps & Siapkan Ekstensi', border: '#0f172a', bg: '#f8fafc' }
         ];
 
@@ -3519,11 +3504,23 @@ const ScraperClient = {
     googleMapsSearchQuery(cityWide = false) {
         const cleanLabel = text => String(text || '').replace(/\s*\[.*?\]\s*/g, '').replace(/\s*\(\d+\)\s*$/, '').trim();
         let category = cleanLabel((this.currentQuery.category || 'bisnis').replace(/_/g, ' '));
+        const kwEl = document.getElementById('target-keyword-input');
+        const kwVal = (kwEl && typeof kwEl.value === 'string') ? kwEl.value.trim() : '';
         const categorySelect = document.getElementById('target-category-select');
-        if (this.currentQuery.targetMode === 'preset' && categorySelect?.selectedOptions?.[0]) {
+        const sectorSelect = document.getElementById('target-sector-select');
+
+        if (kwVal) {
+            category = cleanLabel(kwVal);
+        } else if (this.currentQuery.targetMode === 'preset' && categorySelect?.selectedOptions?.[0]) {
             category = cleanLabel(categorySelect.selectedOptions[0].textContent);
+            if (/^semua jenis bisnis/i.test(category) && sectorSelect?.selectedOptions?.[0]) {
+                const secLabel = cleanLabel(sectorSelect.selectedOptions[0].textContent);
+                if (!/^semua bidang/i.test(secLabel)) category = secLabel;
+            }
         }
-        if (['all', 'semua', 'semua_bidang', 'all_categories'].includes(this.currentQuery.category) || /^semua (bidang usaha|jenis bisnis)/i.test(category)) {
+        if (['all', 'semua', 'semua_bidang', 'all_categories'].includes(this.currentQuery.category) && !kwVal && (!category || /^semua (bidang usaha|jenis bisnis)/i.test(category))) {
+            category = 'bisnis';
+        } else if (/^semua (bidang usaha|jenis bisnis)/i.test(category)) {
             category = 'bisnis';
         } else {
             category = category.replace(/^semua\s+/i, '');
@@ -3594,15 +3591,33 @@ const ScraperClient = {
         return data;
     },
 
+    getActiveCategoryAndLocation() {
+        const kwVal = document.getElementById('target-keyword-input')?.value?.trim() || '';
+        const catSelect = document.getElementById('target-category-select');
+        const secSelect = document.getElementById('target-sector-select');
+
+        let category = this.currentQuery.category || 'bisnis';
+        if (kwVal) {
+            category = kwVal;
+        } else if (catSelect && catSelect.value && catSelect.value !== 'all' && catSelect.selectedIndex >= 0) {
+            category = catSelect.options[catSelect.selectedIndex].text.replace(/\s*\(.*?\)\s*/g, '').replace(/^semua\s+/i, '').trim();
+        } else if (secSelect && secSelect.value && secSelect.value !== 'semua_bidang' && secSelect.selectedIndex >= 0) {
+            category = secSelect.options[secSelect.selectedIndex].text.replace(/\s*\(.*?\)\s*/g, '').trim();
+        }
+
+        const location = (this.currentQuery.location || 'Indonesia').replace(/\s*\[.*?\]\s*/g, '').trim() || 'Indonesia';
+        return { category, location, kwVal };
+    },
+
     updateTargetSummaryDisplay() {
         const summaryEl = document.getElementById('summary-active-target');
         if (!summaryEl) return;
 
-        // 1. Kategori / Bidang
+        // 1. Kategori / Kata Kunci
+        const kw = document.getElementById('target-keyword-input')?.value?.trim() || '';
         let catText = 'Semua Bidang Usaha';
-        if (this.currentQuery.targetMode === 'keyword') {
-            const kw = document.getElementById('target-keyword-input')?.value?.trim();
-            catText = kw ? `"${kw}"` : 'Semua Kata Kunci';
+        if (kw) {
+            catText = `Kata Kunci: "${kw}"`;
         } else {
             const catSelect = document.getElementById('target-category-select');
             const secSelect = document.getElementById('target-sector-select');
@@ -3636,6 +3651,103 @@ const ScraperClient = {
         summaryEl.textContent = `${catText} di ${locText}`;
     },
 
+    normalizeMapsPlaces(places = [], fallbackLocation = 'Indonesia', providerLabel = 'Google Maps', fallbackSource = 'cloud_api') {
+        return (places || []).map((p, idx) => ({
+            id: idx + 1,
+            name: p.name,
+            category: p.category || 'Bisnis',
+            address: p.address || fallbackLocation,
+            phone: p.phone || '-',
+            whatsapp: p.whatsapp || '',
+            lat: p.lat || null,
+            lng: p.lng || null,
+            social_media: p.website || p.social_media || '-',
+            website: p.website || '',
+            opening_hours: p.opening_hours || '-',
+            rating: p.rating || 0,
+            reviews_count: p.reviews_count || 0,
+            status: 'none',
+            source: p.source || fallbackSource,
+            source_type: 'google_maps',
+            source_name: p.source_name || providerLabel,
+            insights: {
+                provenance: { source_name: p.source_name || providerLabel, source_url: p.google_maps_url || '' },
+                metrics: { rating_available: Number(p.rating) > 0, reviews_count_available: Number(p.reviews_count) > 0 }
+            }
+        }));
+    },
+
+    normalizeDorkingLeads(leads = [], category = 'Bisnis', location = 'Indonesia') {
+        return (leads || []).map((l, idx) => ({
+            id: idx + 1,
+            name: l.name,
+            category: l.category || category || 'Sosmed Business',
+            address: l.address || location,
+            phone: l.phone || '-',
+            whatsapp: l.whatsapp || '',
+            lat: null,
+            lng: null,
+            social_media: l.evidence_url || l.website || '-',
+            website: l.evidence_url || l.website || '',
+            opening_hours: l.opening_hours || 'Online',
+            rating: 0,
+            reviews_count: 0,
+            status: 'none',
+            source: l.source || 'duckduckgo_dorking',
+            source_type: 'google_dorking',
+            source_name: l.source_name || 'Sosmed Dorking',
+            notes: l.snippet || '',
+            insights: {
+                provenance: { source_name: l.source_name || 'Sosmed Dorking', source_url: l.evidence_url || l.website || '' },
+                metrics: { rating_available: false, reviews_count_available: false },
+                contact: { whatsapp_listed: Boolean(l.whatsapp), phone_listed: Boolean(l.phone), whatsapp: l.whatsapp || '' }
+            }
+        }));
+    },
+
+    mergeHybridLeads(mapsList = [], dorkingList = []) {
+        const merged = [];
+        const seenMaps = new Set();
+        const seenDork = new Set();
+
+        const makeKey = item => {
+            const cleanName = String(item.name || '').toLowerCase().trim();
+            const cleanPhone = String(item.phone || '').replace(/[^\d]/g, '');
+            return `${cleanName}|${cleanPhone}`;
+        };
+
+        (mapsList || []).forEach(item => {
+            const key = makeKey(item);
+            if (!seenMaps.has(key)) {
+                seenMaps.add(key);
+                merged.push({ ...item, source_type: 'google_maps' });
+            }
+        });
+
+        (dorkingList || []).forEach(item => {
+            const key = makeKey(item);
+            if (!seenDork.has(key)) {
+                seenDork.add(key);
+                merged.push({ ...item, source_type: 'google_dorking' });
+            }
+        });
+
+        return merged.map((item, idx) => ({ ...item, id: idx + 1 }));
+    },
+
+    showScrapedResultsPage(results, category, location) {
+        this.scrapedResults = results || [];
+        this.currentQuery.category = category;
+        this.currentQuery.location = location;
+        this.activeFilter = 'all';
+        this.renderScrapedResultsTable();
+
+        const setupView = document.getElementById('scraper-setup-view');
+        const resultsView = document.getElementById('scraped-results-view');
+        if (setupView) setupView.style.display = 'none';
+        if (resultsView) resultsView.style.display = 'block';
+    },
+
     generateStaticHostLeads(category = 'bisnis', location = 'Indonesia', limit = 25, engine = 'cloud') {
         const cleanCat = (category || 'bisnis').replace(/[_-]/g, ' ').toLowerCase();
         const cleanLoc = (location || 'Indonesia').replace(/\s*\[.*?\]\s*/g, '').trim() || 'Kota Magelang';
@@ -3654,7 +3766,9 @@ const ScraperClient = {
         } else if (cleanCat.includes('bengkel') || cleanCat.includes('otomotif') || cleanCat.includes('motor') || cleanCat.includes('mobil')) {
             catNames = ['Bengkel Motor Presisi', 'Service Mobil Injeksi', 'Pusat Aksesoris & Ban', 'Bengkel Las & Body Repair'];
         } else {
-            const cap = category ? (category.charAt(0).toUpperCase() + category.slice(1)) : 'Bisnis';
+            const cap = (category && !['all', 'semua', 'semua_bidang', 'bisnis'].includes(category.toLowerCase()))
+                ? (category.charAt(0).toUpperCase() + category.slice(1))
+                : 'Usaha Lokal';
             catNames = [`Sentra ${cap}`, `Studio ${cap}`, `Layanan ${cap}`, `Pusat Grosir ${cap}`, `Gerai Resmi ${cap}`];
         }
 
@@ -3719,9 +3833,236 @@ const ScraperClient = {
         return leads;
     },
 
+    async pollLocalScraper(query, location, limitVal, allowFailoverMerge = true) {
+        return new Promise((resolve) => {
+            let idleCount = 0;
+            let pollCount = 0;
+            const maxPolls = 55; // ~110 seconds max
+
+            const pollTimer = setInterval(async () => {
+                pollCount++;
+                try {
+                    const st = await this.safeFetchJson('api/scraper.php?action=local_scrape_status');
+
+                    if (st.captcha_prompt) {
+                        idleCount = 0;
+                        this.setEngineStatus(
+                            '⚠️ CAPTCHA Terdeteksi!',
+                            'Jendela browser dibuka ke layar laptop Anda. Silakan centang/selesaikan CAPTCHA gambar dalam 45 detik agar proses berlanjut...',
+                            'Selesaikan CAPTCHA',
+                            'badge-amber',
+                            true,
+                            50
+                        );
+                    } else if (st.status === 'running' || st.status === 'loading_maps' || st.status === 'starting_browser') {
+                        idleCount = 0;
+                        const count = st.collected_count || 0;
+                        const pct = Math.min(95, Math.max(15, Math.round((count / Math.max(1, limitVal)) * 100)));
+                        this.setEngineStatus(
+                            'Mesin Lokal Sedang Mengambil Data...',
+                            `Terkumpul: <strong>${count} / ${limitVal} tempat</strong> (Auto-Save per data).`,
+                            `Mengambil (${count}/${limitVal})`,
+                            'badge-blue',
+                            true,
+                            pct
+                        );
+                    } else if (st.status === 'completed' || st.status === 'failover_to_api') {
+                        clearInterval(pollTimer);
+                        const localPlaces = this.normalizeMapsPlaces(st.places || [], location, 'Mesin Lokal Laptop', 'local_headless');
+
+                        if (st.status === 'failover_to_api' && allowFailoverMerge) {
+                            const remaining = Math.max(1, limitVal - localPlaces.length);
+                            this.setEngineStatus(
+                                'Failover ke Cloud API',
+                                `Waktu CAPTCHA habis. <strong>${localPlaces.length} data awal tetap aman tersimpan!</strong> Melanjutkan sisa ${remaining} target via Cloud API...`,
+                                'Estafet Cloud API',
+                                'badge-amber',
+                                true,
+                                75
+                            );
+                            try {
+                                const cloudData = await this.safeFetchJson('api/scraper.php?action=cloud_scrape', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ query, location, limit: remaining })
+                                });
+                                if (cloudData.success && Array.isArray(cloudData.places)) {
+                                    const cloudNorm = this.normalizeMapsPlaces(cloudData.places, location, cloudData.provider || 'Cloud API', 'cloud_api');
+                                    return resolve({
+                                        places: this.mergeHybridLeads(localPlaces, []).concat(cloudNorm).map((it, i) => ({ ...it, id: i + 1 })),
+                                        provider: `Mesin Lokal (${localPlaces.length}) + ${cloudData.provider} (${cloudNorm.length})`,
+                                        failoverUsed: true
+                                    });
+                                }
+                            } catch (_) {}
+                        }
+
+                        return resolve({ places: localPlaces, provider: 'Mesin Lokal Laptop' });
+                    } else if (st.status === 'error') {
+                        clearInterval(pollTimer);
+                        return resolve({ places: this.normalizeMapsPlaces(st.places || [], location, 'Mesin Lokal Laptop', 'local_headless'), error: 'Mesin lokal berhenti karena error Chrome/Node.' });
+                    } else {
+                        idleCount++;
+                        if (idleCount >= 8 || pollCount >= maxPolls) {
+                            clearInterval(pollTimer);
+                            return resolve({ places: [], error: 'Mesin lokal belum berjalan (pastikan Node.js & Google Chrome terpasang di laptop).' });
+                        }
+                    }
+                } catch (err) {
+                    idleCount++;
+                    if (idleCount >= 5 || pollCount >= maxPolls) {
+                        clearInterval(pollTimer);
+                        return resolve({ places: [], error: err.message });
+                    }
+                }
+            }, 2000);
+        });
+    },
+
+    async executeHybridScrape() {
+        const { category, location } = this.getActiveCategoryAndLocation();
+        const query = this.googleMapsSearchQuery();
+        const limitVal = parseInt(document.getElementById('scraper-batch-limit')?.value || '25', 10) || 25;
+
+        this.setEngineStatus(
+            'Ekstraksi Otomatis (Maps + Sosmed WA)',
+            `Menjalankan <strong>Jalur 1 (Google Maps)</strong> &amp; <strong>Jalur 2 (Sosmed Hunter)</strong> secara bersamaan untuk "<strong>${this.escapeText(category)}</strong>" di <strong>${this.escapeText(location)}</strong>...`,
+            'Menjalankan 2 Jalur',
+            'badge-blue',
+            true,
+            25
+        );
+
+        if (this.isStaticHost()) {
+            await new Promise(r => setTimeout(r, 600));
+            this.setEngineStatus(
+                'Menggabungkan Maps & Sosmed WA...',
+                `Mengambil lokasi Google Maps &amp; memburu kontak WA dari Instagram, Facebook, TikTok di <strong>${this.escapeText(location)}</strong>...`,
+                'Menggabungkan Data',
+                'badge-blue',
+                true,
+                70
+            );
+            await new Promise(r => setTimeout(r, 700));
+
+            const mapsCount = Math.ceil(limitVal * 0.6);
+            const dorkCount = Math.max(1, limitVal - mapsCount);
+            const mapsLeads = this.generateStaticHostLeads(category, location, mapsCount, 'cloud');
+            const dorkLeads = this.generateStaticHostLeads(category, location, dorkCount, 'dorking');
+            const merged = this.mergeHybridLeads(mapsLeads, dorkLeads);
+
+            this.setEngineStatus(
+                'Selesai (Maps + Sosmed WA)',
+                `Berhasil memuat <strong>${mapsLeads.length} leads Google Maps</strong> + <strong>${dorkLeads.length} kontak WA Sosmed</strong>.`,
+                'Selesai',
+                'badge-green',
+                true,
+                100
+            );
+
+            this.showScrapedResultsPage(merged, category, location);
+            this.showToast(`✓ Mode Pratinjau: ${mapsLeads.length} Google Maps + ${dorkLeads.length} Sosmed WA berhasil dimuat!`);
+            return;
+        }
+
+        // Jalur 1 (Google Maps: Cloud API Waterfall -> Fallback Mesin Lokal Chrome)
+        const runMapsTrack = async () => {
+            try {
+                const statusRes = await this.safeFetchJson('api/scraper.php?action=cloud_status');
+                const providers = statusRes?.providers || {};
+                const hasAnyCloudKey = Object.values(providers).some(p => p && p.configured);
+
+                if (hasAnyCloudKey) {
+                    const cloudData = await this.safeFetchJson('api/scraper.php?action=cloud_scrape', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query, category, location, limit: Math.ceil(limitVal * 0.65) })
+                    });
+                    if (cloudData.success && Array.isArray(cloudData.places) && cloudData.places.length > 0) {
+                        return {
+                            places: this.normalizeMapsPlaces(cloudData.places, location, cloudData.provider, 'cloud_api'),
+                            label: cloudData.provider
+                        };
+                    }
+                }
+
+                // Fallback ke Mesin Lokal jika dijalankan di localhost & belum ada API key atau cloud gagal
+                const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+                if (isLocal) {
+                    const startLocal = await this.safeFetchJson('api/scraper.php?action=run_local_scrape', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query, limit: Math.ceil(limitVal * 0.65), headless: true })
+                    });
+                    if (startLocal.success) {
+                        const localOut = await this.pollLocalScraper(query, location, Math.ceil(limitVal * 0.65), true);
+                        return { places: localOut.places || [], label: localOut.provider || 'Mesin Lokal', note: localOut.error };
+                    }
+                }
+
+                return { places: [], note: 'Cloud API Key belum diisi & Mesin Lokal tidak aktif' };
+            } catch (err) {
+                return { places: [], note: err.message };
+            }
+        };
+
+        // Jalur 2 (Sosmed & Direct WA Hunter via DuckDuckGo)
+        const runDorkingTrack = async () => {
+            try {
+                const dorkData = await this.safeFetchJson('api/scraper.php?action=dork_hunt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ category, location, platform: 'all', limit: Math.max(5, Math.floor(limitVal * 0.5)) })
+                });
+                if (dorkData.success && Array.isArray(dorkData.leads)) {
+                    return {
+                        leads: this.normalizeDorkingLeads(dorkData.leads, category, location),
+                        label: 'DuckDuckGo Sosmed Hunter'
+                    };
+                }
+                return { leads: [], note: 'Tidak ada WA publik ditemukan' };
+            } catch (err) {
+                return { leads: [], note: err.message };
+            }
+        };
+
+        const [mapsRes, dorkRes] = await Promise.allSettled([runMapsTrack(), runDorkingTrack()]);
+        const mapsVal = (mapsRes.status === 'fulfilled' && mapsRes.value) ? mapsRes.value : { places: [] };
+        const dorkVal = (dorkRes.status === 'fulfilled' && dorkRes.value) ? dorkRes.value : { leads: [] };
+
+        const merged = this.mergeHybridLeads(mapsVal.places || [], dorkVal.leads || []);
+
+        if (merged.length === 0) {
+            this.setEngineStatus(
+                'Nol Hasil Ditemukan',
+                `Jalur Maps (${this.escapeText(mapsVal.note || 'kosong')}) &amp; Jalur Sosmed (${this.escapeText(dorkVal.note || 'kosong')}). Coba kata kunci lebih spesifik atau cek config.local.php.`,
+                'Kosong',
+                'badge-amber',
+                false
+            );
+            alert('Belum ada data yang berhasil diambil. Pastikan minimal salah satu API Key di config.local.php terisi atau coba kata kunci lebih spesifik.');
+            return;
+        }
+
+        const mapsCount = (mapsVal.places || []).length;
+        const dorkCount = (dorkVal.leads || []).length;
+        const extraNote = mapsCount === 0 && mapsVal.note ? ` <br><small>(Info Maps: ${this.escapeText(mapsVal.note)})</small>` : '';
+
+        this.setEngineStatus(
+            'Ekstraksi Selesai!',
+            `Terkumpul <strong>${merged.length} prospek</strong>: <strong>${mapsCount} dari Google Maps</strong> + <strong>${dorkCount} WA dari Sosmed</strong>.${extraNote}`,
+            'Selesai',
+            'badge-green',
+            true,
+            100
+        );
+
+        this.showScrapedResultsPage(merged, category, location);
+        this.showToast(`✓ Berhasil: ${mapsCount} leads Maps + ${dorkCount} WA Sosmed!`);
+    },
+
     async executeCloudWaterfallScrape() {
-        const category = this.currentQuery.category || 'bisnis';
-        const location = this.currentQuery.location || 'Indonesia';
+        const { category, location } = this.getActiveCategoryAndLocation();
         const query = this.googleMapsSearchQuery();
         const limitSelect = document.getElementById('scraper-batch-limit');
         const limitVal = parseInt(limitSelect?.value || '25', 10) || 25;
@@ -3757,14 +4098,7 @@ const ScraperClient = {
                 100
             );
 
-            this.scrapedResults = simulatedPlaces;
-            this.currentQuery.category = category;
-            this.currentQuery.location = location;
-            this.activeFilter = 'all';
-            this.renderScrapedResultsTable();
-
-            document.getElementById('scraper-setup-view').style.display = 'none';
-            document.getElementById('scraped-results-view').style.display = 'block';
+            this.showScrapedResultsPage(simulatedPlaces, category, location);
             this.showToast(`✓ Mode Pratinjau: Berhasil memuat ${simulatedPlaces.length} prospek ${category} di ${location}!`);
             return;
         }
@@ -3788,7 +4122,7 @@ const ScraperClient = {
                 return;
             }
 
-            const places = data.places || [];
+            const places = this.normalizeMapsPlaces(data.places || [], location, data.provider, 'cloud_api');
             this.setEngineStatus(
                 `Sukses (${data.provider})`,
                 `Berhasil mengambil <strong>${places.length} data bisnis</strong> via ${data.provider} tanpa buka browser!`,
@@ -3798,37 +4132,7 @@ const ScraperClient = {
                 100
             );
 
-            this.scrapedResults = places.map((p, idx) => ({
-                id: idx + 1,
-                name: p.name,
-                category: p.category || 'Bisnis',
-                address: p.address || location,
-                phone: p.phone || '-',
-                whatsapp: p.whatsapp || '',
-                lat: p.lat || null,
-                lng: p.lng || null,
-                social_media: p.website || '-',
-                website: p.website || '',
-                opening_hours: p.opening_hours || '-',
-                rating: p.rating || 0,
-                reviews_count: p.reviews_count || 0,
-                status: 'none',
-                source: p.source || 'cloud_api',
-                source_type: p.source_type || 'google_maps',
-                source_name: p.source_name || data.provider,
-                insights: {
-                    provenance: { source_name: p.source_name || data.provider, source_url: p.google_maps_url || '' },
-                    metrics: { rating_available: Number(p.rating) > 0, reviews_count_available: Number(p.reviews_count) > 0 }
-                }
-            }));
-
-            this.currentQuery.category = category;
-            this.currentQuery.location = location;
-            this.activeFilter = 'all';
-            this.renderScrapedResultsTable();
-
-            document.getElementById('scraper-setup-view').style.display = 'none';
-            document.getElementById('scraped-results-view').style.display = 'block';
+            this.showScrapedResultsPage(places, category, location);
             this.showToast(`✓ Berhasil memuat ${places.length} prospek via ${data.provider}!`);
         } catch (e) {
             this.setEngineStatus('Koneksi Server', e.message, 'Gagal', 'badge-red');
@@ -3837,8 +4141,7 @@ const ScraperClient = {
     },
 
     async executeLocalChromeScrape() {
-        const category = this.currentQuery.category || 'bisnis';
-        const location = this.currentQuery.location || 'Indonesia';
+        const { category, location } = this.getActiveCategoryAndLocation();
         const query = this.googleMapsSearchQuery();
         const limitSelect = document.getElementById('scraper-batch-limit');
         const limitVal = parseInt(limitSelect?.value || '25', 10) || 25;
@@ -3874,14 +4177,7 @@ const ScraperClient = {
                 100
             );
 
-            this.scrapedResults = simulatedPlaces;
-            this.currentQuery.category = category;
-            this.currentQuery.location = location;
-            this.activeFilter = 'all';
-            this.renderScrapedResultsTable();
-
-            document.getElementById('scraper-setup-view').style.display = 'none';
-            document.getElementById('scraped-results-view').style.display = 'block';
+            this.showScrapedResultsPage(simulatedPlaces, category, location);
             this.showToast(`✓ Sukses mengambil ${simulatedPlaces.length} data via Mesin Lokal!`);
             return;
         }
@@ -3900,93 +4196,24 @@ const ScraperClient = {
             }
 
             this.showToast('Mesin lokal Chrome dimulai di latar belakang laptop Anda.');
+            const result = await this.pollLocalScraper(query, location, limitVal, true);
 
-            const pollTimer = setInterval(async () => {
-                try {
-                    const st = await this.safeFetchJson('api/scraper.php?action=local_scrape_status');
+            if (!result.places || result.places.length === 0) {
+                this.setEngineStatus('Gagal / Kosong', result.error || 'Tidak ada data yang berhasil ditarik Mesin Lokal.', 'Gagal', 'badge-red');
+                return;
+            }
 
-                    if (st.captcha_prompt) {
-                        this.setEngineStatus(
-                            '⚠️ CAPTCHA Terdeteksi!',
-                            'Jendela browser dibuka ke layar laptop Anda. Silakan centang/selesaikan CAPTCHA gambar dalam 45 detik agar proses berlanjut...',
-                            'Selesaikan CAPTCHA',
-                            'badge-amber',
-                            true,
-                            50
-                        );
-                    } else if (st.status === 'running' || st.status === 'loading_maps') {
-                        const count = st.collected_count || 0;
-                        const pct = Math.min(95, Math.round((count / limitVal) * 100));
-                        this.setEngineStatus(
-                            'Mesin Lokal Sedang Mengambil Data...',
-                            `Terkumpul: <strong>${count} / ${limitVal} tempat</strong> (Otomatis disimpan per data).`,
-                            `Mengambil (${count}/${limitVal})`,
-                            'badge-blue',
-                            true,
-                            pct
-                        );
-                    } else if (st.status === 'completed' || st.status === 'failover_to_api') {
-                        clearInterval(pollTimer);
+            this.setEngineStatus(
+                result.failoverUsed ? 'Selesai (Lokal + Failover API)' : 'Mesin Lokal Selesai!',
+                `Berhasil mengumpulkan <strong>${result.places.length} tempat</strong> (${this.escapeText(result.provider || 'Mesin Lokal')})!`,
+                'Selesai',
+                'badge-green',
+                true,
+                100
+            );
 
-                        const places = st.places || [];
-                        if (st.status === 'failover_to_api') {
-                            this.setEngineStatus(
-                                'Failover ke Cloud API',
-                                `Waktu CAPTCHA habis. ${places.length} data awal tetap aman tersimpan! Melanjutkan sisa target via Cloud API...`,
-                                'Failover API',
-                                'badge-amber',
-                                true,
-                                70
-                            );
-                            await this.executeCloudWaterfallScrape();
-                            return;
-                        }
-
-                        this.setEngineStatus(
-                            'Mesin Lokal Selesai!',
-                            `Berhasil mengekstrak <strong>${places.length} tempat</strong> secara otomatis di laptop Anda!`,
-                            'Selesai',
-                            'badge-green',
-                            true,
-                            100
-                        );
-
-                        this.scrapedResults = places.map((p, idx) => ({
-                            id: idx + 1,
-                            name: p.name,
-                            category: p.category || 'Bisnis',
-                            address: p.address || location,
-                            phone: p.phone || '-',
-                            whatsapp: p.whatsapp || '',
-                            lat: p.lat || null,
-                            lng: p.lng || null,
-                            social_media: p.website || '-',
-                            website: p.website || '',
-                            opening_hours: p.opening_hours || '-',
-                            rating: p.rating || 0,
-                            reviews_count: p.reviews_count || 0,
-                            status: 'none',
-                            source: 'local_headless',
-                            source_type: 'google_maps',
-                            source_name: 'Mesin Lokal Laptop',
-                            insights: {
-                                provenance: { source_name: 'Mesin Lokal Laptop (Chrome)', source_url: p.google_maps_url || '' },
-                                metrics: { rating_available: Number(p.rating) > 0, reviews_count_available: Number(p.reviews_count) > 0 }
-                            }
-                        }));
-
-                        this.currentQuery.category = category;
-                        this.currentQuery.location = location;
-                        this.activeFilter = 'all';
-                        this.renderScrapedResultsTable();
-
-                        document.getElementById('scraper-setup-view').style.display = 'none';
-                        document.getElementById('scraped-results-view').style.display = 'block';
-                        this.showToast(`✓ Sukses mengambil ${places.length} data via Mesin Lokal!`);
-                    }
-                } catch (_) {}
-            }, 2000);
-
+            this.showScrapedResultsPage(result.places, category, location);
+            this.showToast(`✓ Sukses mengambil ${result.places.length} data via ${result.provider}!`);
         } catch (e) {
             this.setEngineStatus('Error Server', e.message, 'Gagal', 'badge-red');
             alert('Catatan Server: ' + e.message);
@@ -3994,8 +4221,7 @@ const ScraperClient = {
     },
 
     async executeDorkingHunter() {
-        const category = this.currentQuery.category || 'bisnis';
-        const location = this.currentQuery.location || 'Indonesia';
+        const { category, location } = this.getActiveCategoryAndLocation();
         const limitSelect = document.getElementById('scraper-batch-limit');
         const limitVal = parseInt(limitSelect?.value || '25', 10) || 25;
 
@@ -4030,14 +4256,7 @@ const ScraperClient = {
                 100
             );
 
-            this.scrapedResults = simulatedLeads;
-            this.currentQuery.category = category;
-            this.currentQuery.location = location;
-            this.activeFilter = 'all';
-            this.renderScrapedResultsTable();
-
-            document.getElementById('scraper-setup-view').style.display = 'none';
-            document.getElementById('scraped-results-view').style.display = 'block';
+            this.showScrapedResultsPage(simulatedLeads, category, location);
             this.showToast(`✓ Berhasil memburu ${simulatedLeads.length} nomor WhatsApp dari Sosmed!`);
             return;
         }
@@ -4060,7 +4279,7 @@ const ScraperClient = {
                 return;
             }
 
-            const leads = data.leads;
+            const leads = this.normalizeDorkingLeads(data.leads, category, location);
             this.setEngineStatus(
                 'Buru WA Selesai!',
                 `Berhasil memburu <strong>${leads.length} nomor WhatsApp langsung</strong> dari media sosial publik!`,
@@ -4070,38 +4289,7 @@ const ScraperClient = {
                 100
             );
 
-            this.scrapedResults = leads.map((l, idx) => ({
-                id: idx + 1,
-                name: l.name,
-                category: l.category || 'Sosmed Business',
-                address: l.address,
-                phone: l.phone,
-                whatsapp: l.whatsapp,
-                lat: null,
-                lng: null,
-                social_media: l.evidence_url || l.website,
-                website: l.evidence_url || l.website,
-                opening_hours: l.opening_hours || 'Online',
-                rating: 0,
-                reviews_count: 0,
-                status: 'none',
-                source: l.source || 'duckduckgo_dorking',
-                source_type: 'google_dorking',
-                source_name: l.source_name || 'Sosmed Dorking',
-                insights: {
-                    provenance: { source_name: l.source_name, source_url: l.evidence_url },
-                    metrics: { rating_available: false, reviews_count_available: false },
-                    contact: { whatsapp_listed: true, phone_listed: true, whatsapp: l.whatsapp }
-                }
-            }));
-
-            this.currentQuery.category = category;
-            this.currentQuery.location = location;
-            this.activeFilter = 'all';
-            this.renderScrapedResultsTable();
-
-            document.getElementById('scraper-setup-view').style.display = 'none';
-            document.getElementById('scraped-results-view').style.display = 'block';
+            this.showScrapedResultsPage(leads, category, location);
             this.showToast(`✓ Berhasil memburu ${leads.length} nomor WhatsApp dari Sosmed!`);
         } catch (e) {
             this.setEngineStatus('Error Dorking', e.message, 'Error', 'badge-red');
@@ -4196,10 +4384,22 @@ const ScraperClient = {
             : (this.currentQuery.category || 'PROSPEK').toUpperCase();
         if (titleEl) titleEl.textContent = `Hasil Scraping: ${catUpper} di ${this.currentQuery.location}`;
         const summary = document.getElementById('scraped-summary');
+        const mapsTotal = this.scrapedResults.filter(it => it.source_type !== 'google_dorking').length;
+        const dorkTotal = this.scrapedResults.filter(it => it.source_type === 'google_dorking').length;
+        const waTotal = this.scrapedResults.filter(it => it.phone && it.phone !== '-').length;
+
+        const pillAll = document.getElementById('pill-filter-all');
+        const pillMaps = document.getElementById('pill-filter-source-maps');
+        const pillDork = document.getElementById('pill-filter-source-dorking');
+        const pillWa = document.getElementById('pill-filter-has-wa');
+        if (pillAll) pillAll.textContent = `Semua Leads (${this.scrapedResults.length})`;
+        if (pillMaps) pillMaps.innerHTML = `<i class="fa-solid fa-map-location-dot" style="color: #2563eb;"></i> Google Maps (${mapsTotal})`;
+        if (pillDork) pillDork.innerHTML = `<i class="fa-brands fa-instagram" style="color: #7c3aed;"></i> Sosmed Dorking (${dorkTotal})`;
+        if (pillWa) pillWa.innerHTML = `<i class="fa-brands fa-whatsapp text-success"></i> Punya WhatsApp (${waTotal})`;
+
         if (summary) {
-            const contacts = this.scrapedResults.filter(item => item.phone && item.phone !== '-').length;
             const websites = this.scrapedResults.filter(item => item.website || (item.social_media && item.social_media !== '-')).length;
-            summary.textContent = `${this.scrapedResults.length} bisnis · ${contacts} dengan telepon · ${websites} dengan website. Tersimpan di riwayat; gunakan Simpan ke Arsip atau Download Excel.`;
+            summary.textContent = `${this.scrapedResults.length} bisnis (${mapsTotal} Google Maps · ${dorkTotal} Sosmed Dorking) · ${waTotal} dengan telepon · ${websites} dengan website/medsos.`;
         }
 
         let filtered = this.scrapedResults;
