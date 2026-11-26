@@ -149,6 +149,13 @@ define('APIFY_TOKEN', $apifyToken);
 define('OUTSCRAPER_API_KEY', $outscraperKey);
 define('SERPAPI_API_KEY', $serpApiKey);
 
+define('SMTP_PROVIDER', (string)($localConfig['SMTP_PROVIDER'] ?? (getenv('SMTP_PROVIDER') ?: '')));
+define('SMTP_HOST', (string)($localConfig['SMTP_HOST'] ?? (getenv('SMTP_HOST') ?: '')));
+define('SMTP_PORT', (string)($localConfig['SMTP_PORT'] ?? (getenv('SMTP_PORT') ?: '')));
+define('SMTP_USER', (string)($localConfig['SMTP_USER'] ?? (getenv('SMTP_USER') ?: '')));
+define('SMTP_PASS', (string)($localConfig['SMTP_PASS'] ?? (getenv('SMTP_PASS') ?: '')));
+define('SMTP_FROM', (string)($localConfig['SMTP_FROM'] ?? (getenv('SMTP_FROM') ?: '')));
+
 define('APP_NAME', 'cliento');
 define('APP_SUBTITLE', 'sales intelligence');
 
@@ -467,7 +474,8 @@ function sendDirectSmtpSocket($host, $port, $username, $password, $from, $fromNa
         return ['success' => false, 'error' => "Server SMTP tidak merespon: $greeting"];
     }
 
-    $sendCmd($socket, "EHLO " . gethostname());
+    $fromDomain = substr(strrchr($from, '@'), 1) ?: 'cliento.my.id';
+    $sendCmd($socket, "EHLO " . $fromDomain);
 
     if ($port == 587) {
         $tls = $sendCmd($socket, "STARTTLS");
@@ -479,7 +487,7 @@ function sendDirectSmtpSocket($host, $port, $username, $password, $from, $fromNa
             fclose($socket);
             return ['success' => false, 'error' => "Enkripsi TLS gagal"];
         }
-        $sendCmd($socket, "EHLO " . gethostname());
+        $sendCmd($socket, "EHLO " . $fromDomain);
     }
 
     $auth = $sendCmd($socket, "AUTH LOGIN");
@@ -497,16 +505,33 @@ function sendDirectSmtpSocket($host, $port, $username, $password, $from, $fromNa
     $passRes = $sendCmd($socket, base64_encode($password));
     if (substr($passRes, 0, 3) != '235') {
         fclose($socket);
-        return ['success' => false, 'error' => "Password / Sandi Aplikasi Gmail ditolak: $passRes"];
+        return ['success' => false, 'error' => "Password SMTP ditolak: $passRes"];
     }
 
-    $sendCmd($socket, "MAIL FROM: <$from>");
-    $sendCmd($socket, "RCPT TO: <$to>");
-    $sendCmd($socket, "DATA");
+    $mailFromRes = $sendCmd($socket, "MAIL FROM: <$from>");
+    if (substr($mailFromRes, 0, 3) != '250') {
+        fclose($socket);
+        return ['success' => false, 'error' => "MAIL FROM ditolak: $mailFromRes"];
+    }
 
+    $rcptRes = $sendCmd($socket, "RCPT TO: <$to>");
+    if (substr($rcptRes, 0, 3) != '250' && substr($rcptRes, 0, 3) != '251') {
+        fclose($socket);
+        return ['success' => false, 'error' => "RCPT TO ditolak: $rcptRes"];
+    }
+
+    $dataCmdRes = $sendCmd($socket, "DATA");
+    if (substr($dataCmdRes, 0, 3) != '354') {
+        fclose($socket);
+        return ['success' => false, 'error' => "Perintah DATA ditolak: $dataCmdRes"];
+    }
+
+    $msgId = '<' . bin2hex(random_bytes(10)) . '@' . $fromDomain . '>';
     $headers  = "MIME-Version: 1.0\r\n";
     $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
+    $headers .= "Message-ID: $msgId\r\n";
     $headers .= "From: $fromName <$from>\r\n";
+    $headers .= "Reply-To: $from\r\n";
     $headers .= "To: <$to>\r\n";
     $headers .= "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n";
     $headers .= "Date: " . date('r') . "\r\n";
@@ -632,47 +657,67 @@ function sendEmailOtp($toEmail, $otpCode, $userName = 'Pengguna Cliento', $purpo
     </body>
     </html>';
 
-    // Check configured settings from DB
+    // Check configured settings from DB, with config.local.php fallback
     $settings = [];
     try {
-        $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings");
-        $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        if ($pdo) {
+            $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings");
+            $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        }
     } catch (Exception $e) {}
 
-    $provider = $settings['smtp_provider'] ?? 'smtp';
-    $smtpHost = $settings['smtp_host'] ?? 'smtp.gmail.com';
-    $smtpPort = (int)($settings['smtp_port'] ?? 465);
-    $smtpUser = $settings['smtp_user'] ?? '';
-    $smtpPass = $settings['smtp_pass'] ?? '';
-    $smtpFrom = $settings['smtp_from'] ?? ($smtpUser ?: 'no-reply@cliento.id');
+    $pickCfg = function($dbKey, $constName, $default = '') use ($settings) {
+        $val = isset($settings[$dbKey]) ? trim((string)$settings[$dbKey]) : '';
+        if ($val !== '') return $val;
+        if (defined($constName)) {
+            $cVal = trim((string)constant($constName));
+            if ($cVal !== '') return $cVal;
+        }
+        return $default;
+    };
+
+    $provider = $pickCfg('smtp_provider', 'SMTP_PROVIDER', 'cpanel_smtp');
+    $defaultHost = ($provider === 'gmail_smtp') ? 'smtp.gmail.com' : 'mail.cliento.my.id';
+    $smtpHost = $pickCfg('smtp_host', 'SMTP_HOST', $defaultHost);
+    $smtpPort = (int)$pickCfg('smtp_port', 'SMTP_PORT', '465');
+    $smtpUser = $pickCfg('smtp_user', 'SMTP_USER', '');
+    $smtpPass = $pickCfg('smtp_pass', 'SMTP_PASS', '');
+    $smtpFrom = $pickCfg('smtp_from', 'SMTP_FROM', $smtpUser ?: 'noreply@cliento.my.id');
     $smtpFromName = 'cliento Sales Intelligence';
     $brevoKey = $settings['brevo_api_key'] ?? '';
     $resendKey = $settings['resend_api_key'] ?? '';
+    $GLOBALS['cliento_last_mail_error'] = '';
 
     // 1. Try Brevo API (Free 300 emails/day to Gmail)
     if ($provider === 'brevo' || (!empty($brevoKey) && empty($smtpPass))) {
         $res = sendBrevoApiMail($brevoKey, $smtpFrom, $smtpFromName, $toEmail, $userName, $subject, $htmlContent);
-        if ($res['success']) return true;
+        if (!empty($res['success'])) return true;
+        $GLOBALS['cliento_last_mail_error'] = $res['error'] ?? json_encode($res['response'] ?? 'Brevo gagal');
     }
 
     // 2. Try Resend API (Free 3,000 emails/month)
     if ($provider === 'resend' || (!empty($resendKey) && empty($smtpPass))) {
         $res = sendResendApiMail($resendKey, $smtpFrom, $toEmail, $subject, $htmlContent);
-        if ($res['success']) return true;
+        if (!empty($res['success'])) return true;
+        $GLOBALS['cliento_last_mail_error'] = $res['error'] ?? json_encode($res['response'] ?? 'Resend gagal');
     }
 
-    // 3. Try Gmail SMTP / Custom SMTP if password configured
+    // 3. Try cPanel Domain SMTP / Gmail SMTP if password configured
     if (!empty($smtpUser) && !empty($smtpPass)) {
         $res = sendDirectSmtpSocket($smtpHost, $smtpPort, $smtpUser, $smtpPass, $smtpFrom, $smtpFromName, $toEmail, $subject, $htmlContent);
-        if ($res['success']) return true;
+        if (!empty($res['success'])) return true;
+        $GLOBALS['cliento_last_mail_error'] = $res['error'] ?? 'Koneksi SMTP gagal';
+        error_log("sendDirectSmtpSocket failed: " . $GLOBALS['cliento_last_mail_error']);
+    } else {
+        $GLOBALS['cliento_last_mail_error'] = 'SMTP / API email belum dikonfigurasi.';
     }
 
-    // 3. Fallback to native PHP mail
+    // 4. Fallback to native PHP mail (only on non-SMTP setups where mail() might work)
     $headers = [
         'MIME-Version: 1.0',
         'Content-Type: text/html; charset=UTF-8',
         'From: ' . $smtpFromName . ' <' . $smtpFrom . '>',
-        'Reply-To: support@cliento.id',
+        'Reply-To: ' . $smtpFrom,
         'X-Mailer: PHP/' . phpversion()
     ];
 
@@ -682,7 +727,7 @@ function sendEmailOtp($toEmail, $otpCode, $userName = 'Pengguna Cliento', $purpo
     } catch (Exception $e) {
         $sent = false;
     }
-    return $sent;
+    return (bool)$sent;
 }
 
 

@@ -103,13 +103,23 @@ if ($action === 'get_system_settings') {
     $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings");
     $rawSettings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
-    $gemini = $rawSettings['gemini_api_key'] ?? (defined('GEMINI_API_KEY') ? GEMINI_API_KEY : '');
-    $gmaps = $rawSettings['gmaps_api_key'] ?? (defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '');
-    $smtpProvider = $rawSettings['smtp_provider'] ?? 'gmail_smtp';
-    $smtpHost = $rawSettings['smtp_host'] ?? 'smtp.gmail.com';
-    $smtpPort = $rawSettings['smtp_port'] ?? '465';
-    $smtpUser = $rawSettings['smtp_user'] ?? '';
-    $smtpFrom = $rawSettings['smtp_from'] ?? 'no-reply@cliento.id';
+    $pickSetting = function($key, $constName, $default = '') use ($rawSettings) {
+        $v = isset($rawSettings[$key]) ? trim((string)$rawSettings[$key]) : '';
+        if ($v !== '') return $v;
+        if (defined($constName) && trim((string)constant($constName)) !== '') {
+            return trim((string)constant($constName));
+        }
+        return $default;
+    };
+
+    $gemini = $pickSetting('gemini_api_key', 'GEMINI_API_KEY', '');
+    $gmaps = $pickSetting('gmaps_api_key', 'GOOGLE_MAPS_API_KEY', '');
+    $smtpProvider = $pickSetting('smtp_provider', 'SMTP_PROVIDER', 'cpanel_smtp');
+    $smtpHost = $pickSetting('smtp_host', 'SMTP_HOST', 'mail.cliento.my.id');
+    $smtpPort = $pickSetting('smtp_port', 'SMTP_PORT', '465');
+    $smtpUser = $pickSetting('smtp_user', 'SMTP_USER', '');
+    $smtpFrom = $pickSetting('smtp_from', 'SMTP_FROM', $smtpUser ?: 'noreply@cliento.my.id');
+    $hasSmtpPass = !empty($rawSettings['smtp_pass']) || (defined('SMTP_PASS') && SMTP_PASS !== '');
     $brevoKey = $rawSettings['brevo_api_key'] ?? '';
     $resendKey = $rawSettings['resend_api_key'] ?? '';
 
@@ -123,6 +133,7 @@ if ($action === 'get_system_settings') {
             'smtp_port' => $smtpPort,
             'smtp_user' => $smtpUser,
             'smtp_from' => $smtpFrom,
+            'has_smtp_pass' => $hasSmtpPass,
             'brevo_api_key' => $brevoKey,
             'resend_api_key' => $resendKey,
             'backend_url' => $rawSettings['backend_url'] ?? ''
@@ -132,18 +143,17 @@ if ($action === 'get_system_settings') {
 
 // 5. SAVE SYSTEM SETTINGS
 if ($action === 'save_system_settings') {
-    $settings = [
-        'gemini_api_key' => trim($input['gemini_api_key'] ?? ''),
-        'gmaps_api_key' => trim($input['gmaps_api_key'] ?? ''),
-        'smtp_provider' => trim($input['smtp_provider'] ?? 'gmail_smtp'),
-        'smtp_host' => trim($input['smtp_host'] ?? 'smtp.gmail.com'),
-        'smtp_port' => trim($input['smtp_port'] ?? '465'),
-        'smtp_user' => trim($input['smtp_user'] ?? ''),
-        'smtp_from' => trim($input['smtp_from'] ?? 'no-reply@cliento.id'),
-        'brevo_api_key' => trim($input['brevo_api_key'] ?? ''),
-        'resend_api_key' => trim($input['resend_api_key'] ?? ''),
-        'backend_url' => trim($input['backend_url'] ?? '')
+    $allowedFields = [
+        'gemini_api_key', 'gmaps_api_key',
+        'smtp_provider', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_from',
+        'brevo_api_key', 'resend_api_key', 'backend_url'
     ];
+    $settings = [];
+    foreach ($allowedFields as $field) {
+        if (array_key_exists($field, $input)) {
+            $settings[$field] = trim((string)$input[$field]);
+        }
+    }
 
     if (!empty($input['smtp_pass'])) {
         $settings['smtp_pass'] = $input['smtp_pass'];
@@ -178,13 +188,14 @@ if ($action === 'test_email') {
     if ($sent) {
         jsonResponse([
             'success' => true,
-            'message' => 'Uji coba pengiriman email BERHASIL! Kode OTP simulasi ' . $testOtp . ' dikirimkan ke ' . $targetEmail . '. Silakan periksa inbox/spam Gmail Anda.',
+            'message' => 'Uji coba pengiriman email BERHASIL! Kode OTP simulasi ' . $testOtp . ' dikirimkan ke ' . $targetEmail . '. Silakan periksa Inbox/Spam Gmail Anda.',
             'otp' => $testOtp
         ]);
     } else {
+        $errDetail = !empty($GLOBALS['cliento_last_mail_error']) ? (' (' . $GLOBALS['cliento_last_mail_error'] . ')') : '';
         jsonResponse([
             'success' => false,
-            'message' => 'Gagal mengirim email secara langsung. Pastikan Sandi Aplikasi Gmail atau API Key Brevo/Resend sudah tepat.',
+            'message' => 'Gagal mengirim email secara langsung' . $errDetail . '. Pastikan konfigurasi Email cPanel/Gmail atau API Key Brevo/Resend sudah tepat.',
             'otp_preview' => $testOtp
         ], 500);
     }

@@ -32,4 +32,12 @@ return [
     'APIFY_TOKEN'          => '', // Gratis $5/bulan (~1.000-2.000 tempat)
     'OUTSCRAPER_API_KEY'   => '', // Gratis 500 data tempat/bulan
     'SERPAPI_API_KEY'      => '', // Gratis 100 pencarian/bulan
+
+    // Email OTP SMTP (cPanel Domain / Gmail App Password)
+    'SMTP_PROVIDER'        => 'cpanel_smtp',
+    'SMTP_HOST'            => 'mail.cliento.my.id',
+    'SMTP_PORT'            => '465',
+    'SMTP_USER'            => 'noreply@cliento.my.id',
+    'SMTP_PASS'            => '',
+    'SMTP_FROM'            => 'noreply@cliento.my.id',
 ];

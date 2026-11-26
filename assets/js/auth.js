@@ -453,9 +453,20 @@ const Auth = {
         if (mailProviderSelect) {
             mailProviderSelect.addEventListener('change', () => {
                 const val = mailProviderSelect.value;
-                document.getElementById('group-gmail-smtp').style.display = val === 'gmail_smtp' ? 'block' : 'none';
+                const isSmtp = val === 'cpanel_smtp' || val === 'gmail_smtp';
+                document.getElementById('group-gmail-smtp').style.display = isSmtp ? 'block' : 'none';
                 document.getElementById('group-brevo').style.display = val === 'brevo' ? 'block' : 'none';
                 document.getElementById('group-resend').style.display = val === 'resend' ? 'block' : 'none';
+
+                const hostEl = document.getElementById('mail-smtp-host');
+                const hintEl = document.getElementById('mail-smtp-help-hint');
+                if (val === 'gmail_smtp') {
+                    if (hostEl && (!hostEl.value || hostEl.value === 'mail.cliento.my.id')) hostEl.value = 'smtp.gmail.com';
+                    if (hintEl) hintEl.innerHTML = 'Dapatkan sandi gratis di: <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color:#2563eb;">Google App Passwords</a> (Aktifkan 2FA Gmail terlebih dahulu).';
+                } else if (val === 'cpanel_smtp') {
+                    if (hostEl && (!hostEl.value || hostEl.value === 'smtp.gmail.com')) hostEl.value = 'mail.cliento.my.id';
+                    if (hintEl) hintEl.innerHTML = 'Menggunakan email resmi domain cPanel (<code>noreply@cliento.my.id</code>) dengan sertifikat SSL, DKIM &amp; SPF valid.';
+                }
             });
         }
 
@@ -1491,11 +1502,18 @@ const Auth = {
                 const s = data.settings;
                 const select = document.getElementById('mail-provider-select');
                 if (select) {
-                    select.value = s.smtp_provider || 'gmail_smtp';
+                    select.value = s.smtp_provider || 'cpanel_smtp';
                     select.dispatchEvent(new Event('change'));
                 }
 
+                if (document.getElementById('mail-smtp-host')) document.getElementById('mail-smtp-host').value = s.smtp_host || 'mail.cliento.my.id';
+                if (document.getElementById('mail-smtp-port')) document.getElementById('mail-smtp-port').value = s.smtp_port || '465';
                 if (document.getElementById('mail-smtp-user')) document.getElementById('mail-smtp-user').value = s.smtp_user || '';
+                const passEl = document.getElementById('mail-smtp-pass');
+                if (passEl) {
+                    passEl.value = '';
+                    passEl.placeholder = s.has_smtp_pass ? '•••••••••••• (tersimpan di server, kosongkan jika tetap)' : 'Masukkan password SMTP / Sandi Aplikasi';
+                }
                 if (document.getElementById('mail-brevo-key')) document.getElementById('mail-brevo-key').value = s.brevo_api_key || '';
                 if (document.getElementById('mail-resend-key')) document.getElementById('mail-resend-key').value = s.resend_api_key || '';
                 if (document.getElementById('test-email-target')) document.getElementById('test-email-target').value = this.currentUser.email || '';
@@ -1507,6 +1525,8 @@ const Auth = {
 
     async handleSaveMailSettings() {
         const smtp_provider = document.getElementById('mail-provider-select').value;
+        const smtp_host = (document.getElementById('mail-smtp-host')?.value || '').trim() || (smtp_provider === 'gmail_smtp' ? 'smtp.gmail.com' : 'mail.cliento.my.id');
+        const smtp_port = (document.getElementById('mail-smtp-port')?.value || '465').trim();
         const smtp_user = document.getElementById('mail-smtp-user').value.trim();
         const smtp_pass = document.getElementById('mail-smtp-pass').value.trim();
         const brevo_api_key = document.getElementById('mail-brevo-key').value.trim();
@@ -1523,11 +1543,13 @@ const Auth = {
                 method: 'POST',
                 body: JSON.stringify({
                     smtp_provider,
+                    smtp_host,
+                    smtp_port,
                     smtp_user,
                     smtp_pass,
                     brevo_api_key,
                     resend_api_key,
-                    smtp_from: smtp_user || 'no-reply@cliento.id'
+                    smtp_from: smtp_user || 'noreply@cliento.my.id'
                 })
             });
             const data = await res.json();

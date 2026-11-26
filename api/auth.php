@@ -54,20 +54,29 @@ if ($action === 'login') {
 
     // If customer and email is not verified, require OTP verification
     if ($user['role'] === 'customer' && (int)$user['is_verified'] !== 1) {
-        // Generate new OTP
+        // Generate new OTP (UTC expiry consistent with verify_otp)
         $otpCode = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-        $expiresAt = date('Y-m-d H:i:s', time() + 900); // 15 mins
+        $expiresAt = gmdate('Y-m-d H:i:s', time() + 900); // 15 mins UTC
 
         $otpStmt = $pdo->prepare("INSERT INTO email_otps (user_id, email, otp_code, type, expires_at) VALUES (?, ?, ?, 'register', ?)");
         $otpStmt->execute([$user['id'], $user['email'], $otpCode, $expiresAt]);
 
-        sendEmailOtp($user['email'], $otpCode, $user['name']);
+        $emailSent = sendEmailOtp($user['email'], $otpCode, $user['name']);
+        if (!$emailSent && !isLocalDev()) {
+            $errHint = !empty($GLOBALS['cliento_last_mail_error']) ? (' (' . $GLOBALS['cliento_last_mail_error'] . ')') : '';
+            jsonResponse([
+                'success' => false,
+                'email_sent' => false,
+                'message' => 'Akun belum terverifikasi, namun gagal mengirim OTP ke ' . $user['email'] . $errHint . '. Hubungi Admin untuk konfigurasi email.'
+            ], 500);
+        }
 
         $otpResponse = [
             'success' => false,
             'otp_required' => true,
+            'email_sent' => $emailSent,
             'email' => $user['email'],
-            'message' => 'Akun Anda belum diverifikasi. Kode OTP baru telah dikirimkan ke email Anda.'
+            'message' => 'Akun Anda belum diverifikasi. Kode OTP baru telah dikirimkan ke email Anda (cek Inbox/Spam).'
         ];
         if (isLocalDev()) $otpResponse['otp_preview'] = $otpCode;
         jsonResponse($otpResponse, 200);
@@ -143,18 +152,26 @@ if ($action === 'register') {
         $userId = (int)$pdo->lastInsertId();
     }
 
-    // Generate 6-digit OTP code
+    // Generate 6-digit OTP code (15 mins UTC expiry)
     $otpCode = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-    $expiresAt = date('Y-m-d H:i:s', time() + 900); // 15 mins
+    $expiresAt = gmdate('Y-m-d H:i:s', time() + 900);
 
     $otpStmt = $pdo->prepare("INSERT INTO email_otps (user_id, email, otp_code, type, expires_at) VALUES (?, ?, ?, 'register', ?)");
     $otpStmt->execute([$userId, $email, $otpCode, $expiresAt]);
 
     $emailSent = sendEmailOtp($email, $otpCode, $name);
+    if (!$emailSent && !isLocalDev()) {
+        $errHint = !empty($GLOBALS['cliento_last_mail_error']) ? (' (' . $GLOBALS['cliento_last_mail_error'] . ')') : '';
+        jsonResponse([
+            'success' => false,
+            'email_sent' => false,
+            'message' => 'Gagal mengirim email OTP ke ' . $email . $errHint . '. Pastikan alamat email benar atau hubungi Admin.'
+        ], 500);
+    }
 
     $regResponse = [
         'success' => true,
-        'message' => 'Pendaftaran berhasil! Kode verifikasi OTP telah dikirimkan ke email ' . $email . '.',
+        'message' => 'Pendaftaran berhasil! Kode verifikasi OTP telah dikirimkan ke email ' . $email . ' (periksa Inbox atau folder Spam).',
         'email' => $email,
         'email_sent' => $emailSent
     ];
@@ -176,9 +193,10 @@ if ($action === 'verify_otp') {
         jsonResponse(['success' => false, 'message' => 'Email dan kode OTP wajib diisi.'], 400);
     }
 
-    // Check OTP
-    $stmt = $pdo->prepare("SELECT id, user_id FROM email_otps WHERE email = ? AND otp_code = ? AND is_used = 0 AND expires_at >= CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$email, $otpCode]);
+    // Check OTP against UTC timestamp cleanly
+    $nowUtc = gmdate('Y-m-d H:i:s');
+    $stmt = $pdo->prepare("SELECT id, user_id FROM email_otps WHERE email = ? AND otp_code = ? AND is_used = 0 AND expires_at >= ? ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$email, $otpCode, $nowUtc]);
     $otpRow = $stmt->fetch();
 
     if (!$otpRow) {
@@ -195,7 +213,7 @@ if ($action === 'verify_otp') {
     $upUser->execute([$token, $email]);
 
     // Fetch user info
-    $userStmt = $pdo->prepare("SELECT id, role, name, email, phone, status, is_verified, avatar FROM users WHERE email = ?");
+    $userStmt = $pdo->prepare("SELECT id, role, username, name, email, phone, status, is_verified, avatar FROM users WHERE email = ?");
     $userStmt->execute([$email]);
     $user = $userStmt->fetch();
     $user['token'] = $token;
@@ -227,18 +245,26 @@ if ($action === 'resend_otp') {
     // Invalidate previous unused OTPs
     $pdo->prepare("UPDATE email_otps SET is_used = 1 WHERE email = ? AND is_used = 0")->execute([$email]);
 
-    // Generate new OTP
+    // Generate new OTP (UTC expiry)
     $otpCode = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-    $expiresAt = date('Y-m-d H:i:s', time() + 900);
+    $expiresAt = gmdate('Y-m-d H:i:s', time() + 900);
 
     $pdo->prepare("INSERT INTO email_otps (user_id, email, otp_code, type, expires_at) VALUES (?, ?, ?, 'register', ?)")
         ->execute([$user['id'], $email, $otpCode, $expiresAt]);
 
     $emailSent = sendEmailOtp($email, $otpCode, $user['name']);
+    if (!$emailSent && !isLocalDev()) {
+        $errHint = !empty($GLOBALS['cliento_last_mail_error']) ? (' (' . $GLOBALS['cliento_last_mail_error'] . ')') : '';
+        jsonResponse([
+            'success' => false,
+            'email_sent' => false,
+            'message' => 'Gagal mengirim ulang kode OTP ke ' . $email . $errHint . '.'
+        ], 500);
+    }
 
     $resendResponse = [
         'success' => true,
-        'message' => 'Kode OTP baru berhasil dikirim ke ' . $email,
+        'message' => 'Kode OTP baru berhasil dikirim ke ' . $email . ' (cek Inbox/Spam).',
         'email_sent' => $emailSent
     ];
     if (isLocalDev()) $resendResponse['otp_preview'] = $otpCode;
@@ -365,14 +391,22 @@ if ($action === 'forgot_password') {
     // Invalidate old unused OTPs
     $pdo->prepare("UPDATE email_otps SET is_used = 1 WHERE email = ? AND is_used = 0")->execute([$userEmail]);
 
-    // Generate 6-digit OTP code (15 mins expiry)
+    // Generate 6-digit OTP code (15 mins UTC expiry)
     $otpCode = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-    $expiresAt = date('Y-m-d H:i:s', time() + 900);
+    $expiresAt = gmdate('Y-m-d H:i:s', time() + 900);
 
     $ins = $pdo->prepare("INSERT INTO email_otps (user_id, email, otp_code, type, expires_at) VALUES (?, ?, ?, 'reset_password', ?)");
     $ins->execute([$user['id'], $userEmail, $otpCode, $expiresAt]);
 
     $emailSent = sendEmailOtp($userEmail, $otpCode, $user['name'], 'forgot_password');
+    if (!$emailSent && !isLocalDev()) {
+        $errHint = !empty($GLOBALS['cliento_last_mail_error']) ? (' (' . $GLOBALS['cliento_last_mail_error'] . ')') : '';
+        jsonResponse([
+            'success' => false,
+            'email_sent' => false,
+            'message' => 'Gagal mengirim OTP pemulihan ke email terdaftar' . $errHint . '.'
+        ], 500);
+    }
 
     // Masked email for display
     $emailParts = explode('@', $userEmail);
@@ -428,9 +462,9 @@ if ($action === 'reset_password_otp') {
         jsonResponse(['success' => false, 'message' => 'Konfirmasi kata sandi tidak cocok.'], 400);
     }
 
-    // Verify OTP
-    $stmt = $pdo->prepare("SELECT id, user_id FROM email_otps WHERE email = ? AND otp_code = ? AND type = 'reset_password' AND is_used = 0 AND expires_at >= CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$email, $otpCode]);
+    // Verify OTP (UTC expiry check)
+    $stmt = $pdo->prepare("SELECT id, user_id FROM email_otps WHERE email = ? AND otp_code = ? AND type = 'reset_password' AND is_used = 0 AND expires_at >= ? ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$email, $otpCode, gmdate('Y-m-d H:i:s')]);
     $otpRow = $stmt->fetch();
 
     if (!$otpRow) {
@@ -542,14 +576,22 @@ if ($action === 'request_email_change_otp') {
         jsonResponse(['success' => false, 'message' => 'Email tersebut sudah digunakan oleh akun lain.'], 409);
     }
 
-    // Generate OTP for new email
+    // Generate OTP for new email (UTC expiry)
     $otpCode = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-    $expiresAt = date('Y-m-d H:i:s', time() + 900);
+    $expiresAt = gmdate('Y-m-d H:i:s', time() + 900);
 
     $ins = $pdo->prepare("INSERT INTO email_otps (user_id, email, otp_code, type, expires_at) VALUES (?, ?, ?, 'change_email', ?)");
     $ins->execute([$user['id'], $newEmail, $otpCode, $expiresAt]);
 
     $emailSent = sendEmailOtp($newEmail, $otpCode, $user['name'], 'change_email');
+    if (!$emailSent && !isLocalDev()) {
+        $errHint = !empty($GLOBALS['cliento_last_mail_error']) ? (' (' . $GLOBALS['cliento_last_mail_error'] . ')') : '';
+        jsonResponse([
+            'success' => false,
+            'email_sent' => false,
+            'message' => 'Gagal mengirim OTP ke email baru ' . $newEmail . $errHint . '.'
+        ], 500);
+    }
 
     $changeEmailResponse = [
         'success' => true,
@@ -575,8 +617,8 @@ if ($action === 'verify_email_change_otp') {
         jsonResponse(['success' => false, 'message' => 'Email baru dan kode OTP wajib diisi.'], 400);
     }
 
-    $stmt = $pdo->prepare("SELECT id FROM email_otps WHERE user_id = ? AND email = ? AND otp_code = ? AND type = 'change_email' AND is_used = 0 AND expires_at >= CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$user['id'], $newEmail, $otpCode]);
+    $stmt = $pdo->prepare("SELECT id FROM email_otps WHERE user_id = ? AND email = ? AND otp_code = ? AND type = 'change_email' AND is_used = 0 AND expires_at >= ? ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$user['id'], $newEmail, $otpCode, gmdate('Y-m-d H:i:s')]);
     $otpRow = $stmt->fetch();
 
     if (!$otpRow) {
