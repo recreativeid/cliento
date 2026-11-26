@@ -1,9 +1,16 @@
 {
   "manifest_version": 3,
   "name": "cliento - Google Maps Scraper",
-  "version": "1.6.0",
-  "description": "Ambil data bisnis Google Maps setelah klik pengguna, kirim otomatis ke tab cliento atau unduh rekap JSON.",
+  "version": "1.6.1",
+  "description": "Ambil data bisnis Google Maps, hubungkan Agen PC Lokal tanpa blokir LNA, dan kirim otomatis ke tab cliento.",
   "permissions": ["storage"],
+  "host_permissions": [
+    "http://127.0.0.1:43210/*",
+    "http://localhost:43210/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "cliento Google Maps Scraper"

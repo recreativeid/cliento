@@ -41,6 +41,8 @@ assert.ok(scraperPhp.includes("action === 'run_url_batch_scrape'"), 'api/scraper
 assert.ok(scraperPhp.includes("start \"\" /B "), 'api/scraper.php Windows popen must quote empty title cleanly');
 assert.ok(cloudScraperPhp.includes('googlePlacesSearch($cat, $loc, $lat, $lng'), 'api/cloud_scraper.php must pass positional args to googlePlacesSearch');
 assert.ok(cloudScraperPhp.includes("'attempt_log' =>"), 'api/cloud_scraper.php must report attempt_log per provider');
+assert.ok(cloudScraperPhp.includes("strict_provider"), 'api/cloud_scraper.php must support strict_provider for parallel execution');
+assert.ok(scraperJs.includes('Promise.allSettled([\n            runCloudTrack(),\n            runPlacesTrack(),\n            runLocalChromeTrack(),\n            runDorkingTrack()\n        ])') || scraperJs.includes('Promise.allSettled([runCloudTrack(), runPlacesTrack()') || (scraperJs.includes('runCloudTrack(),') && scraperJs.includes('runPlacesTrack(),') && scraperJs.includes('runLocalChromeTrack(),') && scraperJs.includes('runDorkingTrack()')), 'executeHybridScrape must run all active tracks simultaneously');
 assert.ok(localJs.includes('button[data-item-id^="phone:tel:"]'), 'local_headless_scraper.js must inspect detail pane phone selector');
 assert.ok(localJs.includes("getArg('urls-file'"), 'local_headless_scraper.js must support --urls-file batch mode');
 assert.ok(localJs.includes("updateProgress('collecting_links'"), 'local_headless_scraper.js must run 2-phase link collection + extraction');
@@ -48,6 +50,10 @@ assert.ok(localJs.includes("getArg('sublocations-file'"), 'local_headless_scrape
 assert.ok(localJs.includes('failover_to_api'), 'local_headless_scraper.js must preserve 45s failover_to_api');
 const agentJs = fs.readFileSync(path.join(__dirname, '../scripts/cliento_local_agent.js'), 'utf8');
 assert.ok(agentJs.includes('127.0.0.1') && agentJs.includes('Access-Control-Allow-Private-Network'), 'cliento_local_agent.js must support Chrome Private Network Access from https://cliento.my.id');
+assert.ok(agentJs.includes("pathname === '/dork-hunt'") && agentJs.includes('dork_ready'), 'cliento_local_agent.js must expose /dork-hunt and dork_ready status for laptop-IP Sosmed WA hunting');
+const extBg = fs.readFileSync(path.join(__dirname, '../extension/background.js'), 'utf8');
+assert.ok(extBg.includes('CLIENTO_PROXY_LOCAL_AGENT') && extBg.includes('127.0.0.1:43210'), 'extension/background.js must relay loopback agent calls without Chrome LNA block');
+assert.ok(scraperJs.includes('localAgentRelay') && scraperJs.includes('callLocalAgent'), 'scraper.js must route agent calls through Chrome Extension relay when direct loopback PNA is denied');
 
 // 5. Evaluate ScraperClient in VM to verify static host refusal, Hybrid Merge separation, and clean dropdowns
 const exportLine = 'window.ScraperClient = ScraperClient;';

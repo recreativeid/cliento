@@ -680,10 +680,15 @@
                   <span style="color: #64748b;">Memeriksa status API, Google Places, Chrome Lokal &amp; DuckDuckGo...</span>
                 </div>
                 <div id="local-agent-download-banner" style="display: none; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #cbd5e1; font-size: 0.64rem; color: #334155; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;">
-                  <span>💡 Agar <strong>Chrome Lokal 45s</strong> aktif dari web ini:</span>
-                  <a href="downloads/cliento-local-agent.zip" download class="btn btn-outline btn-sm" style="padding: 3px 8px; font-size: 0.63rem; background: #fff; color: #059669; border-color: #10b981; font-weight: 700;">
-                    ⬇️ Download Agen PC (Windows)
-                  </a>
+                  <span id="local-agent-banner-text">💡 Aktifkan <strong>Chrome Lokal 45s &amp; Sosmed DDG</strong> langsung dari laptop:</span>
+                  <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                    <button type="button" id="btn-connect-local-agent" class="btn btn-outline btn-sm" style="padding: 3px 8px; font-size: 0.63rem; background: #eff6ff; color: #1d4ed8; border-color: #93c5fd; font-weight: 700;">
+                      🔌 Hubungkan Agen PC
+                    </button>
+                    <a href="downloads/cliento-local-agent.zip" download class="btn btn-outline btn-sm" style="padding: 3px 8px; font-size: 0.63rem; background: #fff; color: #059669; border-color: #10b981; font-weight: 700;">
+                      ⬇️ Download Agen PC (Windows)
+                    </a>
+                  </div>
                 </div>
               </div>
 
@@ -744,8 +749,8 @@
                   <label class="engine-tile active" id="tile-engine-hybrid" style="display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1.5px solid #2563eb; background: #eff6ff; border-radius: 7px; cursor: pointer;">
                     <input type="radio" name="scrape_engine" value="hybrid" checked style="accent-color: #2563eb;">
                     <div>
-                      <div style="font-size: 0.72rem; font-weight: 700; color: #1e40af;">⚡ Otomatis Lengkap: Maps + Sosmed WA</div>
-                      <div style="font-size: 0.60rem; color: #64748b;">Gabungan 1 klik (Cloud/Lokal + DuckDuckGo WA)</div>
+                      <div style="font-size: 0.72rem; font-weight: 700; color: #1e40af;">⚡ Semua Mesin Aktif Bersamaan (Maps + Sosmed WA)</div>
+                      <div style="font-size: 0.60rem; color: #64748b;">Jalankan Cloud API, Places, Chrome Lokal &amp; Sosmed WA paralel + monitor live</div>
                     </div>
                   </label>
 

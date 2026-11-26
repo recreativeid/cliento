@@ -301,7 +301,12 @@ function serpapiScrapePlaces($query, $limit = 25) {
  */
 function cloudScrapeWaterfall($query, $limit = 25, $preferredProvider = null, $meta = []) {
     $chain = ['apify', 'outscraper', 'serpapi', 'google_places'];
-    if ($preferredProvider && in_array($preferredProvider, $chain, true)) {
+    $strictProvider = !empty($meta['strict_provider']);
+    if ($strictProvider && $preferredProvider === 'cloud_only') {
+        $chain = ['apify', 'outscraper', 'serpapi'];
+    } elseif ($strictProvider && $preferredProvider && in_array($preferredProvider, $chain, true)) {
+        $chain = [$preferredProvider];
+    } elseif ($preferredProvider && in_array($preferredProvider, $chain, true)) {
         // Prioritaskan provider yang dipilih pengguna di depan
         $chain = array_unique(array_merge([$preferredProvider], $chain));
     }

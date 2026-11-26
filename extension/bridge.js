@@ -14,7 +14,8 @@
       window.postMessage({
         source: BRIDGE_SOURCE,
         type: 'CLIENTO_EXTENSION_READY',
-        version: '1.6.0'
+        version: '1.6.1',
+        canRelayAgent: true
       }, window.location.origin);
     } catch (_) {}
   }
@@ -48,6 +49,24 @@
       if (typeof chrome !== 'undefined' && chrome.storage?.local) {
         chrome.storage.local.get(STORAGE_KEY, res => {
           pushCapture(res?.[STORAGE_KEY]);
+        });
+      }
+    } else if (data.type === 'CLIENTO_AGENT_FETCH' && data.reqId) {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({
+          type: 'CLIENTO_PROXY_LOCAL_AGENT',
+          path: data.path || '/status',
+          method: data.method || 'GET',
+          body: data.body || null,
+          timeoutMs: data.timeoutMs || 8000
+        }, response => {
+          const err = chrome.runtime.lastError?.message || null;
+          window.postMessage({
+            source: BRIDGE_SOURCE,
+            type: 'CLIENTO_AGENT_FETCH_RESULT',
+            reqId: data.reqId,
+            response: response || { ok: false, status: 0, error: err || 'Extension relay gagal' }
+          }, window.location.origin);
         });
       }
     }

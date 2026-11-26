@@ -172,7 +172,8 @@ if ($action === 'cloud_scrape') {
         'category' => $cat,
         'location' => $loc,
         'lat' => $jsonInput['lat'] ?? ($_GET['lat'] ?? null),
-        'lng' => $jsonInput['lng'] ?? ($_GET['lng'] ?? null)
+        'lng' => $jsonInput['lng'] ?? ($_GET['lng'] ?? null),
+        'strict_provider' => !empty($jsonInput['strict_provider']) || !empty($_GET['strict_provider'])
     ];
     $res = cloudScrapeWaterfall($q, $limit, $preferred ?: null, $meta);
     jsonResponse($res, $res['success'] ? 200 : 400);
