@@ -52,8 +52,10 @@ const agentJs = fs.readFileSync(path.join(__dirname, '../scripts/cliento_local_a
 assert.ok(agentJs.includes('127.0.0.1') && agentJs.includes('Access-Control-Allow-Private-Network'), 'cliento_local_agent.js must support Chrome Private Network Access from https://cliento.my.id');
 assert.ok(agentJs.includes("pathname === '/dork-hunt'") && agentJs.includes('dork_ready'), 'cliento_local_agent.js must expose /dork-hunt and dork_ready status for laptop-IP Sosmed WA hunting');
 const extBg = fs.readFileSync(path.join(__dirname, '../extension/background.js'), 'utf8');
-assert.ok(extBg.includes('CLIENTO_PROXY_LOCAL_AGENT') && extBg.includes('127.0.0.1:43210'), 'extension/background.js must relay loopback agent calls without Chrome LNA block');
-assert.ok(scraperJs.includes('localAgentRelay') && scraperJs.includes('callLocalAgent'), 'scraper.js must route agent calls through Chrome Extension relay when direct loopback PNA is denied');
+assert.ok(extBg.includes('CLIENTO_PROXY_LOCAL_AGENT') && extBg.includes('127.0.0.1:43210') && extBg.includes('http://localhost/Client_Reach_ai'), 'extension/background.js must relay both PC agent and XAMPP localhost without Chrome LNA block');
+assert.ok(extBg.includes('CLIENTO_EXT_AUTO_SCRAPE_START'), 'extension/background.js must support 1-click Google Maps auto-scrape');
+assert.ok(scraperPhp.includes('Access-Control-Allow-Private-Network'), 'api/scraper.php must allow Chrome Private Network Access when served from XAMPP localhost');
+assert.ok(scraperJs.includes('localAgentRelay') && scraperJs.includes('callLocalAgent') && scraperJs.includes("via_mode: 'xampp'") && scraperJs.includes('executeExtensionAutoScrape') && scraperJs.includes('cliento-agent://start'), 'scraper.js must route agent/XAMPP calls via Extension relay, wake agent protocol, and support 1-click Extension auto-scrape');
 
 // 5. Evaluate ScraperClient in VM to verify static host refusal, Hybrid Merge separation, and clean dropdowns
 const exportLine = 'window.ScraperClient = ScraperClient;';

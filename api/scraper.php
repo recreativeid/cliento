@@ -5,6 +5,27 @@
  * authenticated and persisted through source_import.php.
  */
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$httpHost = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
+$isLoopbackHost = (bool)preg_match('/^(?:localhost|127\.0\.0\.1)(?::\d+)?$/i', $httpHost);
+if ($isLoopbackHost) {
+    $origin = (string)($_SERVER['HTTP_ORIGIN'] ?? '');
+    $allowedPrefixes = ['https://cliento.my.id', 'https://www.cliento.my.id', 'https://recreativeid.github.io', 'http://localhost', 'http://127.0.0.1'];
+    foreach ($allowedPrefixes as $prefix) {
+        if ($origin === $prefix || strpos($origin, $prefix . ':') === 0) {
+            header('Access-Control-Allow-Origin: ' . $origin);
+            header('Vary: Origin');
+            header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+            header('Access-Control-Allow-Headers: Content-Type, Authorization');
+            header('Access-Control-Allow-Private-Network: true');
+            header('Access-Control-Max-Age: 86400');
+            break;
+        }
+    }
+    if ($method === 'OPTIONS') {
+        http_response_code(204);
+        exit;
+    }
+}
 $rawInput = file_get_contents('php://input');
 $jsonInput = !empty($rawInput) ? json_decode($rawInput, true) : [];
 $action = $_GET['action'] ?? ($jsonInput['action'] ?? ($_POST['action'] ?? 'preview'));

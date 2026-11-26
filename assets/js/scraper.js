@@ -3564,11 +3564,19 @@ const ScraperClient = {
                 btnConnectAgent.textContent = '⏳ Menghubungkan...';
                 try {
                     this.useAgentRelayOnly = false;
+                    this.useExtensionRelayMap = {};
                     await this.refreshEngineDiagnostics({ userTriggered: true });
+                    if (!this.localAgentStatus?.active && typeof window !== 'undefined' && window.location?.protocol === 'https:') {
+                        this.triggerLocalAgentWakeUp();
+                        await new Promise(r => setTimeout(r, 2000));
+                        await this.refreshEngineDiagnostics({ userTriggered: true });
+                    }
                     if (this.localAgentStatus?.active) {
-                        if (this.showToast) this.showToast('✅ Agen PC Lokal terhubung! Chrome Lokal siap dijalankan.');
+                        if (this.showToast) this.showToast(`✅ Terhubung (${this.localAgentStatus.via_mode === 'xampp' ? 'XAMPP Localhost' : 'Agen PC'})! Chrome Lokal siap.`);
+                    } else if (this.extensionBridgeReady && this.extensionAutoCapable) {
+                        if (this.showToast) this.showToast('✅ Ekstensi Chrome v1.7.0 aktif untuk auto-scrape 1 klik.');
                     } else if (this.showToast) {
-                        this.showToast('Agen PC belum merespons. Pastikan Chrome Allow jaringan lokal sudah diizinkan & Agen PC berjalan.');
+                        this.showToast('Agen PC belum merespons. Pastikan XAMPP / Agen PC menyala & izinkan Jaringan Lokal Chrome.');
                     }
                 } finally {
                     btnConnectAgent.disabled = false;
@@ -3714,23 +3722,32 @@ const ScraperClient = {
     },
 
     async safeFetchJson(url, options = {}) {
-        const agentPrefix = 'http://127.0.0.1:43210';
-        if (typeof url === 'string' && url.startsWith(agentPrefix)) {
-            const agentPath = url.slice(agentPrefix.length) || '/status';
-            let parsedBody = null;
-            if (options.body) {
-                try { parsedBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body; }
-                catch (_) { parsedBody = options.body; }
+        const localTargets = [
+            { prefix: 'http://127.0.0.1:43210', base: 'agent', defaultPath: '/status' },
+            { prefix: 'http://localhost/Client_Reach_ai', base: 'xampp', defaultPath: '/api/scraper.php?action=engine_diagnostics' }
+        ];
+        if (typeof url === 'string') {
+            const matched = localTargets.find(t => url.startsWith(t.prefix));
+            if (matched) {
+                const reqPath = url.slice(matched.prefix.length) || matched.defaultPath;
+                let parsedBody = null;
+                if (options.body) {
+                    try { parsedBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body; }
+                    catch (_) { parsedBody = options.body; }
+                }
+                const res = await this.callLocalEndpoint({
+                    baseUrl: matched.prefix,
+                    targetBase: matched.base,
+                    reqPath,
+                    method: options.method || 'GET',
+                    body: parsedBody,
+                    timeoutMs: 18000
+                });
+                if (!res || !res.data) {
+                    throw new Error(res?.error || `Lokal server (${matched.base}) tidak merespons.`);
+                }
+                return res.data;
             }
-            const res = await this.callLocalAgent(agentPath, {
-                method: options.method || 'GET',
-                body: parsedBody,
-                timeoutMs: 18000
-            });
-            if (!res || !res.data) {
-                throw new Error(res?.error || 'Agen PC Lokal tidak merespons di 127.0.0.1:43210.');
-            }
-            return res.data;
         }
         const resp = await fetch(url, options);
         const text = await resp.text();
@@ -3990,7 +4007,7 @@ const ScraperClient = {
         return list.slice(0, 60);
     },
 
-    localAgentRelay(reqPath, { method = 'GET', body = null, timeoutMs = 6000 } = {}) {
+    localAgentRelay(reqPath, { targetBase = 'agent', method = 'GET', body = null, timeoutMs = 6000 } = {}) {
         if (typeof window === 'undefined' || typeof window.postMessage !== 'function' || !window.location?.origin || window.location.origin === 'null') {
             return Promise.resolve({ ok: false, status: 0, error: 'Window messaging unavailable' });
         }
@@ -4009,6 +4026,7 @@ const ScraperClient = {
             window.postMessage({
                 type: 'CLIENTO_AGENT_FETCH',
                 reqId,
+                targetBase,
                 path: reqPath,
                 method,
                 body,
@@ -4017,11 +4035,12 @@ const ScraperClient = {
         });
     },
 
-    async callLocalAgent(reqPath, { method = 'GET', body = null, timeoutMs = 3000, userTriggered = false } = {}) {
+    async callLocalEndpoint({ baseUrl = 'http://127.0.0.1:43210', targetBase = 'agent', reqPath = '/status', method = 'GET', body = null, timeoutMs = 3000, userTriggered = false } = {}) {
         const cleanPath = reqPath.startsWith('/') ? reqPath : ('/' + reqPath);
+        if (!this.useExtensionRelayMap) this.useExtensionRelayMap = {};
 
-        if (this.useAgentRelayOnly && this.extensionBridgeReady && !userTriggered) {
-            return this.localAgentRelay(cleanPath, { method, body, timeoutMs });
+        if (this.useExtensionRelayMap[targetBase] && this.extensionBridgeReady && !userTriggered) {
+            return this.localAgentRelay(cleanPath, { targetBase, method, body, timeoutMs });
         }
 
         if (typeof fetch === 'function') {
@@ -4034,14 +4053,15 @@ const ScraperClient = {
                     opts.headers = { 'Content-Type': 'application/json' };
                     opts.body = typeof body === 'string' ? body : JSON.stringify(body);
                 }
-                const res = await fetch('http://127.0.0.1:43210' + cleanPath, opts);
+                const res = await fetch(baseUrl + cleanPath, opts);
                 if (timer) clearTimeout(timer);
                 const data = await res.json();
                 return { ok: res.ok, status: res.status, via: 'direct', data };
             } catch (err) {
                 if (this.extensionBridgeReady) {
-                    const relayRes = await this.localAgentRelay(cleanPath, { method, body, timeoutMs: Math.max(timeoutMs, 6000) });
+                    const relayRes = await this.localAgentRelay(cleanPath, { targetBase, method, body, timeoutMs: Math.max(timeoutMs, 6000) });
                     if (relayRes && relayRes.ok) {
+                        this.useExtensionRelayMap[targetBase] = true;
                         this.useAgentRelayOnly = true;
                         return { ...relayRes, via: 'extension_relay' };
                     }
@@ -4053,25 +4073,126 @@ const ScraperClient = {
         return { ok: false, status: 0, error: 'Fetch unavailable' };
     },
 
+    async callLocalAgent(reqPath, opts = {}) {
+        return this.callLocalEndpoint({ baseUrl: 'http://127.0.0.1:43210', targetBase: 'agent', reqPath, ...opts });
+    },
+
+    triggerLocalAgentWakeUp() {
+        if (typeof document === 'undefined' || !document.body) return;
+        try {
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = 'cliento-agent://start';
+            document.body.appendChild(iframe);
+            setTimeout(() => { try { iframe.remove(); } catch (_) {} }, 1500);
+        } catch (_) {}
+    },
+
+    async executeExtensionAutoScrape(query, limitVal, onProgress = null) {
+        if (typeof window === 'undefined' || !this.extensionBridgeReady || !this.extensionAutoCapable) {
+            return { places: [], error: 'Ekstensi Chrome v1.7.0 tidak aktif.' };
+        }
+        const reqId = 'ext_auto_' + Date.now();
+        return new Promise((resolve) => {
+            const maxTimeout = Math.max(90000, Math.min(600000, limitVal * 3500));
+            const timeoutTimer = setTimeout(() => {
+                this._activeExtAutoResolver = null;
+                resolve({ places: [], error: 'Waktu tunggu Ekstensi Google Maps habis.' });
+            }, maxTimeout);
+
+            this._activeExtAutoResolver = (ev) => {
+                if (onProgress) onProgress(ev);
+                if (ev.phase === 'completed' || ev.phase === 'captcha') {
+                    clearTimeout(timeoutTimer);
+                    this._activeExtAutoResolver = null;
+                    const recs = ev.payload?.records || [];
+                    if (ev.payload && recs.length > 0) {
+                        this._lastImportedExtKey = ev.payload.sent_at || String(Date.now());
+                    }
+                    const norm = recs.length ? this.normalizeExtensionRecordsClient(ev.payload) : [];
+                    resolve({
+                        places: norm,
+                        provider: 'Ekstensi Chrome Otomatis',
+                        error: ev.blocked ? 'Ekstensi berhenti karena CAPTCHA / pembatasan Google Maps.' : (norm.length === 0 ? 'Belum ada tempat ditemukan di tab Maps.' : '')
+                    });
+                }
+            };
+
+            if (!this._pendingAgentRequests) this._pendingAgentRequests = new Map();
+            this._pendingAgentRequests.set(reqId, (startResp) => {
+                if (!startResp || !startResp.ok) {
+                    clearTimeout(timeoutTimer);
+                    this._activeExtAutoResolver = null;
+                    resolve({ places: [], error: startResp?.error || 'Gagal membuka tab Google Maps.' });
+                } else if (onProgress) {
+                    onProgress({ phase: 'running', count: 0 });
+                }
+            });
+
+            window.postMessage({
+                type: 'CLIENTO_EXT_AUTO_SCRAPE_START',
+                reqId,
+                query,
+                limit: limitVal
+            }, window.location.origin);
+        });
+    },
+
     async detectLocalBridgeAgent(options = {}) {
         try {
             const pathUrl = options.userTriggered ? '/status?fresh=1' : '/status';
-            const res = await this.callLocalAgent(pathUrl, {
+            const res = await this.callLocalEndpoint({
+                baseUrl: 'http://127.0.0.1:43210',
+                targetBase: 'agent',
+                reqPath: pathUrl,
                 method: 'GET',
                 timeoutMs: 2500,
                 userTriggered: Boolean(options.userTriggered)
             });
             if (res && res.ok && res.data && res.data.active) {
-                return { ...res.data, relay_via: res.via || 'direct' };
+                return { ...res.data, via_mode: 'agent', relay_via: res.via || 'direct' };
             }
         } catch (_) {}
+
+        // Fallback: Check user's local XAMPP Apache bridge when accessing cliento.my.id online
+        const host = (typeof window !== 'undefined' && window.location?.hostname) ? window.location.hostname.toLowerCase() : '';
+        if (host && !['localhost', '127.0.0.1'].includes(host)) {
+            try {
+                const xamppPath = options.userTriggered
+                    ? '/api/scraper.php?action=engine_diagnostics&fresh=1'
+                    : '/api/scraper.php?action=engine_diagnostics';
+                const xRes = await this.callLocalEndpoint({
+                    baseUrl: 'http://localhost/Client_Reach_ai',
+                    targetBase: 'xampp',
+                    reqPath: xamppPath,
+                    method: 'GET',
+                    timeoutMs: 2500,
+                    userTriggered: Boolean(options.userTriggered)
+                });
+                const localEng = xRes?.data?.engines?.local_chrome;
+                if (xRes && xRes.ok && xRes.data?.success && localEng?.active) {
+                    const dorkEng = xRes.data.engines?.dorking || {};
+                    return {
+                        success: true,
+                        active: true,
+                        via_mode: 'xampp',
+                        relay_via: xRes.via || 'direct',
+                        chrome_found: true,
+                        dork_ready: Boolean(dorkEng.active),
+                        dork_engine: dorkEng.engine || 'DuckDuckGo (XAMPP Lokal)',
+                        dork_message: dorkEng.message || '',
+                        message: 'Aktif — Terhubung otomatis ke XAMPP Localhost (http://localhost/Client_Reach_ai)'
+                    };
+                }
+            } catch (_) {}
+        }
         return null;
     },
 
     async startLocalScrapeSession({ urlBatch = null, query = '', limit = 25, headless = true } = {}) {
-        const viaAgent = !!(this.localAgentStatus && this.localAgentStatus.active);
+        const viaMode = this.localAgentStatus?.active ? (this.localAgentStatus.via_mode || 'agent') : null;
         const sublocations = (!urlBatch && limit > 80) ? this.getActiveSublocations() : [];
-        if (viaAgent) {
+        if (viaMode === 'agent') {
             const agentPath = urlBatch ? '/scrape-urls' : '/scrape';
             const bodyPayload = urlBatch ? { urls: urlBatch, headless } : { query, limit, headless, sublocations };
             const res = await this.callLocalAgent(agentPath, {
@@ -4081,6 +4202,16 @@ const ScraperClient = {
             });
             const data = res.data || { success: false, message: res.error || 'Gagal menghubungi Agen PC' };
             return { ...data, progressUrl: 'http://127.0.0.1:43210/progress' };
+        }
+        if (viaMode === 'xampp') {
+            const xAction = urlBatch ? '/api/scraper.php?action=run_url_batch_scrape' : '/api/scraper.php?action=run_local_scrape';
+            const bodyPayload = urlBatch ? { urls: urlBatch, headless } : { query, limit, headless, sublocations };
+            const data = await this.safeFetchJson('http://localhost/Client_Reach_ai' + xAction, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bodyPayload)
+            });
+            return { ...data, progressUrl: 'http://localhost/Client_Reach_ai/api/scraper.php?action=local_scrape_status' };
         }
         const action = urlBatch ? 'api/scraper.php?action=run_url_batch_scrape' : 'api/scraper.php?action=run_local_scrape';
         const bodyPayload = urlBatch ? { urls: urlBatch, headless } : { query, limit, headless, sublocations };
@@ -4099,31 +4230,41 @@ const ScraperClient = {
         const applyAgent = (engines) => {
             engines.dorking_server = engines.dorking ? { ...engines.dorking } : { status: 'off', active: false };
             if (this.localAgentStatus && this.localAgentStatus.active) {
+                const isXampp = this.localAgentStatus.via_mode === 'xampp';
                 engines.local_chrome = {
                     status: 'active',
                     active: true,
-                    via: this.localAgentStatus.relay_via === 'extension_relay' ? 'pc_agent_ext' : 'pc_agent',
-                    message: 'Aktif — Agen PC Lokal terhubung (127.0.0.1:43210 · Chrome + Auto-Save + CAPTCHA 45s)'
+                    via: isXampp ? 'xampp' : (this.localAgentStatus.relay_via === 'extension_relay' ? 'pc_agent_ext' : 'pc_agent'),
+                    message: isXampp
+                        ? 'Aktif — Terhubung otomatis ke XAMPP Localhost (http://localhost/Client_Reach_ai)'
+                        : 'Aktif — Agen PC Lokal terhubung (127.0.0.1:43210 · Chrome + Auto-Save + CAPTCHA 45s)'
                 };
                 if (this.localAgentStatus.dork_ready) {
                     engines.dorking = {
                         status: 'active',
                         active: true,
-                        via: 'pc_agent',
-                        engine: this.localAgentStatus.dork_engine || 'DuckDuckGo (Agen PC Lokal)',
-                        message: this.localAgentStatus.dork_message || 'Aktif — Sosmed WA Dorking siap via IP Laptop Anda (Bebas blokir IP hosting!)'
+                        via: isXampp ? 'xampp' : 'pc_agent',
+                        engine: this.localAgentStatus.dork_engine || (isXampp ? 'DuckDuckGo (XAMPP Lokal)' : 'DuckDuckGo (Agen PC Lokal)'),
+                        message: this.localAgentStatus.dork_message || 'Aktif — Sosmed WA Dorking siap via IP Laptop Anda!'
                     };
                 }
                 if (engines.cloud_api?.active || engines.google_places?.active) {
                     engines.failover_merge = { status: 'active', active: true, message: 'Siap — Failover 45s & Penggabung Paralel aktif penuh' };
                 } else {
-                    engines.failover_merge = { status: 'standby', active: false, message: 'Aktif Lokal — Auto-save Agen PC & Sosmed WA paralel siap' };
+                    engines.failover_merge = { status: 'standby', active: false, message: 'Aktif Lokal — Auto-save Chrome Lokal & penggabung paralel siap' };
                 }
+            } else if (engines.local_chrome && !engines.local_chrome.active && this.extensionBridgeReady && this.extensionAutoCapable) {
+                engines.local_chrome = {
+                    status: 'active',
+                    active: true,
+                    via: 'extension_auto',
+                    message: 'Aktif 1-Klik — Ekstensi Chrome v1.7.0 membuka tab Google Maps & menarik data otomatis'
+                };
             }
             if (agentBanner) {
                 agentBanner.style.display = engines.local_chrome?.active ? 'none' : 'flex';
                 if (!engines.local_chrome?.active && bannerTextEl && typeof window !== 'undefined' && window.location?.protocol === 'https:' && !this.extensionBridgeReady) {
-                    bannerTextEl.innerHTML = '💡 Agen PC belum terhubung. Klik <strong>Hubungkan Agen PC</strong> &amp; pilih <em>Allow / Izinkan</em> jaringan lokal Chrome (atau muat Ekstensi v1.6.1):';
+                    bannerTextEl.innerHTML = '💡 Agen PC belum terhubung. Klik <strong>Hubungkan Agen PC</strong> (pilih <em>Allow</em> Jaringan Lokal / buka XAMPP &amp; Ekstensi v1.7.0):';
                 }
             }
             return engines;
@@ -4238,14 +4379,15 @@ const ScraperClient = {
 
             if (msg.type === 'CLIENTO_EXTENSION_READY') {
                 this.extensionBridgeReady = true;
+                this.extensionAutoCapable = Boolean(msg.canAutoScrape);
                 const stEl = document.getElementById('extension-bridge-status');
                 if (stEl) {
                     stEl.style.background = '#ecfdf5';
                     stEl.style.borderColor = '#a7f3d0';
                     stEl.style.color = '#065f46';
-                    stEl.innerHTML = `✅ <strong>Ekstensi Chrome v${this.escapeText(msg.version || '1.6.1')} Aktif!</strong> Penghubung Agen PC &amp; Google Maps siap otomatis.`;
+                    stEl.innerHTML = `✅ <strong>Ekstensi Chrome v${this.escapeText(msg.version || '1.7.0')} Aktif!</strong> Agen PC / XAMPP &amp; 1-Klik Auto-Scrape siap otomatis.`;
                 }
-                if (msg.canRelayAgent && !(this.localAgentStatus && this.localAgentStatus.active)) {
+                if ((msg.canRelayAgent || msg.canAutoScrape) && !(this.localAgentStatus && this.localAgentStatus.active)) {
                     this.refreshEngineDiagnostics().catch(() => {});
                 }
             } else if (msg.type === 'CLIENTO_AGENT_FETCH_RESULT' && msg.reqId && this._pendingAgentRequests) {
@@ -4253,6 +4395,16 @@ const ScraperClient = {
                 if (resolver) {
                     this._pendingAgentRequests.delete(msg.reqId);
                     resolver(msg.response);
+                }
+            } else if (msg.type === 'CLIENTO_EXT_AUTO_SCRAPE_STARTED' && msg.reqId && this._pendingAgentRequests) {
+                const resolver = this._pendingAgentRequests.get(msg.reqId);
+                if (resolver) {
+                    this._pendingAgentRequests.delete(msg.reqId);
+                    resolver(msg.response);
+                }
+            } else if (msg.type === 'CLIENTO_EXT_AUTO_PROGRESS') {
+                if (this._activeExtAutoResolver) {
+                    this._activeExtAutoResolver(msg);
                 }
             } else if (msg.type === 'CLIENTO_EXTENSION_CAPTURE' && msg.payload) {
                 const sentKey = msg.payload.sent_at || JSON.stringify(msg.payload.records?.slice(0, 2));
@@ -4478,10 +4630,17 @@ const ScraperClient = {
         const query = this.googleMapsSearchQuery();
         const limitVal = this.getActiveBatchLimit();
 
-        const preAgent = await this.detectLocalBridgeAgent();
+        let preAgent = await this.detectLocalBridgeAgent({ userTriggered: true });
         this.localAgentStatus = preAgent;
 
-        if (this.isStaticHost() && !(preAgent && preAgent.active)) {
+        if (!preAgent && typeof window !== 'undefined' && window.location?.protocol === 'https:' && !this.isStaticHost() && !(this.extensionBridgeReady && this.extensionAutoCapable)) {
+            this.triggerLocalAgentWakeUp();
+            await new Promise(r => setTimeout(r, 2000));
+            preAgent = await this.detectLocalBridgeAgent({ userTriggered: true });
+            this.localAgentStatus = preAgent;
+        }
+
+        if (this.isStaticHost() && !(preAgent && preAgent.active) && !(this.extensionBridgeReady && this.extensionAutoCapable)) {
             this.showStaticHostRealNotice('Ekstraksi Otomatis 1 Klik');
             return;
         }
@@ -4626,6 +4785,30 @@ const ScraperClient = {
         const runLocalChromeTrack = async () => {
             if (!diag?.local_chrome?.active) return { places: [] };
             try {
+                if (diag.local_chrome.via === 'extension_auto') {
+                    stateRows.local_chrome.stateLabel = 'AUTO EKSTENSI';
+                    stateRows.local_chrome.tone = 'running';
+                    stateRows.local_chrome.detail = 'Membuka Google Maps & menjalankan Ekstensi Chrome otomatis...';
+                    syncLiveSummary(false);
+                    const extOut = await this.executeExtensionAutoScrape(query, limitVal, (ev) => {
+                        liveCounts.local_chrome = ev.count || 0;
+                        if (ev.phase === 'captcha') {
+                            stateRows.local_chrome.stateLabel = 'CAPTCHA';
+                            stateRows.local_chrome.tone = 'warn';
+                            stateRows.local_chrome.detail = 'Selesaikan verifikasi di tab Google Maps yang terbuka.';
+                        }
+                        syncLiveSummary(false);
+                    });
+                    const norm = extOut.places || [];
+                    liveCounts.local_chrome = norm.length;
+                    trackDone.local_chrome = true;
+                    stateRows.local_chrome.stateLabel = norm.length > 0 ? `AKTIF (${norm.length})` : 'MATI/KOSONG';
+                    stateRows.local_chrome.tone = norm.length > 0 ? 'active' : 'off';
+                    stateRows.local_chrome.detail = extOut.error || `Ekstensi otomatis selesai mengambil ${norm.length} tempat asli.`;
+                    syncLiveSummary(false);
+                    return { places: norm, label: 'Ekstensi Chrome Otomatis' };
+                }
+
                 const startLocal = await this.startLocalScrapeSession({ query, limit: limitVal, headless: true });
                 if (!startLocal.success) throw new Error(startLocal.message || 'Gagal memulai Chrome Lokal');
                 const localOut = await this.pollLocalScraper(query, location, limitVal, true, (ev) => {
@@ -4671,8 +4854,11 @@ const ScraperClient = {
         const runDorkingTrack = async () => {
             if (!diag?.dorking?.active) return { leads: [] };
             try {
-                const usePcDork = !!(this.localAgentStatus?.active && this.localAgentStatus?.dork_ready && !diag?.dorking_server?.active);
-                const dorkEndpoint = usePcDork ? 'http://127.0.0.1:43210/dork-hunt' : 'api/scraper.php?action=dork_hunt';
+                const usePcDork = !!(this.localAgentStatus?.active && this.localAgentStatus?.via_mode === 'agent' && this.localAgentStatus?.dork_ready && !diag?.dorking_server?.active);
+                const useXamppDork = !!(this.localAgentStatus?.active && this.localAgentStatus?.via_mode === 'xampp' && this.localAgentStatus?.dork_ready && !diag?.dorking_server?.active);
+                const dorkEndpoint = usePcDork
+                    ? 'http://127.0.0.1:43210/dork-hunt'
+                    : (useXamppDork ? 'http://localhost/Client_Reach_ai/api/scraper.php?action=dork_hunt' : 'api/scraper.php?action=dork_hunt');
                 const dorkData = await this.safeFetchJson(dorkEndpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -4852,9 +5038,34 @@ const ScraperClient = {
         const query = this.googleMapsSearchQuery();
         const limitVal = this.getActiveBatchLimit();
 
-        this.localAgentStatus = await this.detectLocalBridgeAgent();
-        if (this.isStaticHost() && !(this.localAgentStatus && this.localAgentStatus.active)) {
+        this.localAgentStatus = await this.detectLocalBridgeAgent({ userTriggered: true });
+        if (!this.localAgentStatus?.active && typeof window !== 'undefined' && window.location?.protocol === 'https:' && !this.isStaticHost() && !(this.extensionBridgeReady && this.extensionAutoCapable)) {
+            this.triggerLocalAgentWakeUp();
+            await new Promise(r => setTimeout(r, 2000));
+            this.localAgentStatus = await this.detectLocalBridgeAgent({ userTriggered: true });
+        }
+
+        if (this.isStaticHost() && !(this.localAgentStatus && this.localAgentStatus.active) && !(this.extensionBridgeReady && this.extensionAutoCapable)) {
             this.showStaticHostRealNotice('Mesin Lokal Chrome');
+            return;
+        }
+
+        if (!(this.localAgentStatus && this.localAgentStatus.active) && this.extensionBridgeReady && this.extensionAutoCapable) {
+            this.setEngineStatus(
+                'Auto-Scrape Google Maps (Ekstensi v1.7.0)',
+                `Membuka tab Google Maps untuk "<strong>${this.escapeText(query)}</strong>" dan menarik data otomatis (target: ${limitVal})...`,
+                'Ekstensi Berjalan',
+                'badge-blue',
+                true,
+                25
+            );
+            const extRes = await this.executeExtensionAutoScrape(query, limitVal);
+            if (!extRes.places || extRes.places.length === 0) {
+                this.setEngineStatus('Ekstensi Auto-Scrape Belum Dapat Data', extRes.error || 'Tidak ada hasil Google Maps yang terkumpul.', 'Kosong', 'badge-amber', false);
+                return;
+            }
+            this.setEngineStatus('Ekstensi Auto-Scrape Selesai!', `Berhasil menarik <strong>${extRes.places.length} tempat asli</strong> otomatis via Ekstensi Chrome!`, 'Selesai', 'badge-green', true, 100);
+            this.showScrapedResultsPage(extRes.places, category, location);
             return;
         }
 
@@ -4904,16 +5115,17 @@ const ScraperClient = {
         const { category, location } = this.getActiveCategoryAndLocation();
         const limitVal = this.getActiveBatchLimit();
 
-        this.localAgentStatus = await this.detectLocalBridgeAgent();
-        const usePcDork = !!(this.localAgentStatus?.active && (this.localAgentStatus?.dork_ready || this.isStaticHost()) && !(this.lastDiagnostics?.dorking_server?.active));
+        this.localAgentStatus = await this.detectLocalBridgeAgent({ userTriggered: true });
+        const usePcDork = !!(this.localAgentStatus?.active && this.localAgentStatus?.via_mode === 'agent' && (this.localAgentStatus?.dork_ready || this.isStaticHost()) && !(this.lastDiagnostics?.dorking_server?.active));
+        const useXamppDork = !!(this.localAgentStatus?.active && this.localAgentStatus?.via_mode === 'xampp' && (this.localAgentStatus?.dork_ready || this.isStaticHost()) && !(this.lastDiagnostics?.dorking_server?.active));
 
-        if (this.isStaticHost() && !usePcDork) {
+        if (this.isStaticHost() && !usePcDork && !useXamppDork) {
             this.showStaticHostRealNotice('Sosmed & Direct WA Hunter');
             return;
         }
 
         this.setEngineStatus(
-            usePcDork ? 'Sosmed & Direct WA Hunter (Agen PC Lokal)' : 'Sosmed & Direct WA Hunter (DuckDuckGo)',
+            usePcDork ? 'Sosmed & Direct WA Hunter (Agen PC Lokal)' : (useXamppDork ? 'Sosmed & Direct WA Hunter (XAMPP Localhost)' : 'Sosmed & Direct WA Hunter (DuckDuckGo)'),
             `Memburu nomor WhatsApp aktif asli dari Instagram, Facebook, TikTok &amp; Web untuk "<strong>${this.escapeText(category)}</strong>" di <strong>${this.escapeText(location)}</strong>...`,
             'Memburu WA...',
             'badge-purple',
@@ -4923,7 +5135,9 @@ const ScraperClient = {
         this.renderTelemetryMatrix([]);
 
         try {
-            const dorkEndpoint = usePcDork ? 'http://127.0.0.1:43210/dork-hunt' : 'api/scraper.php?action=dork_hunt';
+            const dorkEndpoint = usePcDork
+                ? 'http://127.0.0.1:43210/dork-hunt'
+                : (useXamppDork ? 'http://localhost/Client_Reach_ai/api/scraper.php?action=dork_hunt' : 'api/scraper.php?action=dork_hunt');
             const data = await this.safeFetchJson(dorkEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

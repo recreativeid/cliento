@@ -275,16 +275,7 @@
     return null;
   }
 
-  control('start').addEventListener('click', async event => {
-    if (!event.isTrusted || running) return;
-    if (blocked()) { message.textContent = 'Halaman dibatasi. Selesaikan pembatasan di browser sebelum memulai.'; return; }
-    const limit = Number(control('limit').value);
-    if (!Number.isInteger(limit) || limit < 1 || limit > 5000) {
-      message.textContent = 'Isi batas berupa bilangan bulat 1–5000.';
-      return;
-    }
-    const detailEnabled = control('details').checked;
-    const scrollEnabled = control('scroll').checked;
+  async function runCollection({ limit, detailEnabled, scrollEnabled }) {
     queryName = document.querySelector('#searchboxinput')?.value?.trim() || queryName;
     running = true;
     stopRequested = false;
@@ -339,7 +330,63 @@
       running = false;
       update();
     }
+    return processed;
+  }
+
+  control('start').addEventListener('click', async event => {
+    if (!event.isTrusted || running) return;
+    if (blocked()) { message.textContent = 'Halaman dibatasi. Selesaikan pembatasan di browser sebelum memulai.'; return; }
+    const limit = Number(control('limit').value);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 5000) {
+      message.textContent = 'Isi batas berupa bilangan bulat 1–5000.';
+      return;
+    }
+    await runCollection({
+      limit,
+      detailEnabled: control('details').checked,
+      scrollEnabled: control('scroll').checked
+    });
   });
+
+  if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (!msg || msg.type !== 'CLIENTO_EXT_RUN_AUTO') return false;
+      if (running) {
+        sendResponse({ started: false, reason: 'already_running' });
+        return false;
+      }
+      if (blocked()) {
+        sendResponse({ started: true, blocked: true });
+        chrome.runtime.sendMessage({
+          type: 'CLIENTO_EXT_AUTO_DONE',
+          originTabId: msg.originTabId || null,
+          count: 0,
+          blocked: true,
+          payload: null
+        }).catch(() => {});
+        return false;
+      }
+      const limit = Math.max(1, Math.min(5000, parseInt(msg.limit || '25', 10) || 25));
+      if (msg.clearFirst !== false) {
+        records.clear();
+        update();
+      }
+      if (control('limit')) control('limit').value = String(limit);
+      sendResponse({ started: true });
+      runCollection({ limit, detailEnabled: true, scrollEnabled: true }).then((processed) => {
+        const payload = buildPayload();
+        relayToClientoTab(false);
+        chrome.runtime.sendMessage({
+          type: 'CLIENTO_EXT_AUTO_DONE',
+          originTabId: msg.originTabId || null,
+          count: processed,
+          blocked: blocked(),
+          payload
+        }).catch(() => {});
+      });
+      return false;
+    });
+  }
 
   control('stop').addEventListener('click', event => {
     if (!event.isTrusted || !running) return;

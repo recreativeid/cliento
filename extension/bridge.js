@@ -1,7 +1,7 @@
 /**
- * cliento Extension <-> Dashboard Bridge
- * Automatically relays captured Google Maps JSON payloads from the extension
- * directly into any open cliento tab (localhost or GitHub Pages) via window.postMessage.
+ * cliento Extension <-> Dashboard Bridge v1.7.0
+ * Automatically relays captured Google Maps JSON payloads, local agent / XAMPP calls,
+ * and 1-click extension auto-scrape coordination into any open cliento tab.
  */
 (() => {
   'use strict';
@@ -14,8 +14,10 @@
       window.postMessage({
         source: BRIDGE_SOURCE,
         type: 'CLIENTO_EXTENSION_READY',
-        version: '1.6.1',
-        canRelayAgent: true
+        version: '1.7.0',
+        canRelayAgent: true,
+        canRelayXampp: true,
+        canAutoScrape: true
       }, window.location.origin);
     } catch (_) {}
   }
@@ -39,6 +41,24 @@
     });
   }
 
+  if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg && msg.type === 'CLIENTO_EXT_AUTO_PROGRESS') {
+        try {
+          window.postMessage({
+            source: BRIDGE_SOURCE,
+            type: 'CLIENTO_EXT_AUTO_PROGRESS',
+            phase: msg.phase,
+            count: msg.count || 0,
+            blocked: Boolean(msg.blocked),
+            message: msg.message || '',
+            payload: msg.payload || null
+          }, window.location.origin);
+        } catch (_) {}
+      }
+    });
+  }
+
   window.addEventListener('message', event => {
     if (event.source !== window) return;
     const data = event.data;
@@ -55,6 +75,7 @@
       if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         chrome.runtime.sendMessage({
           type: 'CLIENTO_PROXY_LOCAL_AGENT',
+          targetBase: data.targetBase === 'xampp' ? 'xampp' : 'agent',
           path: data.path || '/status',
           method: data.method || 'GET',
           body: data.body || null,
@@ -66,6 +87,22 @@
             type: 'CLIENTO_AGENT_FETCH_RESULT',
             reqId: data.reqId,
             response: response || { ok: false, status: 0, error: err || 'Extension relay gagal' }
+          }, window.location.origin);
+        });
+      }
+    } else if (data.type === 'CLIENTO_EXT_AUTO_SCRAPE_START' && data.reqId) {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({
+          type: 'CLIENTO_EXT_AUTO_SCRAPE_START',
+          query: data.query || '',
+          limit: data.limit || 25
+        }, response => {
+          const err = chrome.runtime.lastError?.message || null;
+          window.postMessage({
+            source: BRIDGE_SOURCE,
+            type: 'CLIENTO_EXT_AUTO_SCRAPE_STARTED',
+            reqId: data.reqId,
+            response: response || { ok: false, error: err || 'Gagal memulai tab auto-scrape' }
           }, window.location.origin);
         });
       }

@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "cliento - Google Maps Scraper",
-  "version": "1.6.1",
-  "description": "Ambil data bisnis Google Maps, hubungkan Agen PC Lokal tanpa blokir LNA, dan kirim otomatis ke tab cliento.",
-  "permissions": ["storage"],
+  "version": "1.7.0",
+  "description": "Hubungkan Agen PC / XAMPP Localhost ke https://cliento.my.id tanpa blokir LNA, plus auto-scrape Google Maps 1 klik.",
+  "permissions": ["storage", "tabs"],
   "host_permissions": [
     "http://127.0.0.1:43210/*",
-    "http://localhost:43210/*"
+    "http://localhost:43210/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "background.js"
