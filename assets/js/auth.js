@@ -831,6 +831,33 @@ const Auth = {
         }
     },
 
+    async fetchAuthJson(url, payload, timeoutMs = 15000) {
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: controller ? controller.signal : undefined
+            });
+            const text = await res.text();
+            let data = null;
+            try { data = JSON.parse(text); } catch (_) {}
+            if (!data) {
+                return { success: false, message: `Respons server tidak valid (HTTP ${res.status}).` };
+            }
+            return data;
+        } catch (err) {
+            if (err && err.name === 'AbortError') {
+                return { success: false, message: 'Waktu tunggu pengiriman OTP habis (>15 detik). Silakan periksa koneksi dan coba lagi.' };
+            }
+            return { success: false, message: 'Koneksi gagal: ' + (err?.message || 'Network error') };
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    },
+
     async handleGateRegister() {
         const name = document.getElementById('gate-reg-name').value.trim();
         const username = (document.getElementById('gate-reg-username')?.value || '').trim();
@@ -860,12 +887,7 @@ const Auth = {
                 btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Mengirim OTP ke Email...';
             }
 
-            const res = await fetch('api/auth.php?action=register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, username, email, phone, password })
-            });
-            const data = await res.json();
+            const data = await this.fetchAuthJson('api/auth.php?action=register', { name, username, email, phone, password });
 
             if (data.success) {
                 this.regOtpState.email = email;
@@ -910,7 +932,7 @@ const Auth = {
         const inp = document.getElementById('gate-otp-code-input');
         if (inp) inp.value = '';
 
-        this.startGateCountdown('reg', 60);
+        this.startGateCountdown('reg', 30);
     },
 
     startGateCountdown(type, seconds) {
@@ -997,13 +1019,14 @@ const Auth = {
         const email = this.regOtpState.email;
         if (!email) return;
 
+        const btnResend = document.getElementById('gate-btn-resend-otp');
+        if (btnResend) {
+            btnResend.disabled = true;
+            btnResend.textContent = 'Mengirim...';
+        }
+
         try {
-            const res = await fetch('api/auth.php?action=resend_otp', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email })
-            });
-            const data = await res.json();
+            const data = await this.fetchAuthJson('api/auth.php?action=resend_otp', { email });
 
             if (data.success) {
                 this.toast(data.message || 'Kode OTP baru berhasil dikirim ke email.', 'success');
@@ -1015,11 +1038,20 @@ const Auth = {
                         banner.style.display = 'block';
                     }
                 }
-                this.startGateCountdown('reg', 60);
+                if (btnResend) btnResend.innerHTML = 'Kirim Ulang <span id="gate-otp-countdown-timer"></span>';
+                this.startGateCountdown('reg', 30);
             } else {
+                if (btnResend) {
+                    btnResend.disabled = false;
+                    btnResend.innerHTML = 'Kirim Ulang <span id="gate-otp-countdown-timer"></span>';
+                }
                 this.toast(data.message || 'Gagal mengirim ulang OTP.', 'error');
             }
         } catch (e) {
+            if (btnResend) {
+                btnResend.disabled = false;
+                btnResend.innerHTML = 'Kirim Ulang <span id="gate-otp-countdown-timer"></span>';
+            }
             this.toast('Kesalahan kirim ulang: ' + e.message, 'error');
         }
     },
@@ -1043,12 +1075,7 @@ const Auth = {
                 btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Mengirim OTP Pemulihan...';
             }
 
-            const res = await fetch('api/auth.php?action=forgot_password', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ account })
-            });
-            const data = await res.json();
+            const data = await this.fetchAuthJson('api/auth.php?action=forgot_password', { account });
 
             if (data.success) {
                 this.forgotOtpState.email = data.email || account;

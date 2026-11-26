@@ -89,22 +89,28 @@ $dbMode = 'none';
 // 1. Supabase Cloud PostgreSQL Connection with fast unreachable cache + automatic Local SQLite Fallback
 if (!defined('SKIP_DB_CONNECT')) {
     $pgCacheFile = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'cliento_pg_unavailable.flag';
-    $skipRemotePg = @file_exists($pgCacheFile) && (time() - (int)@file_get_contents($pgCacheFile)) < 60;
+    $skipRemotePg = @file_exists($pgCacheFile) && (time() - (int)@file_get_contents($pgCacheFile)) < 300;
 
     if (!empty($supabaseHost) && extension_loaded('pdo_pgsql') && !$skipRemotePg) {
-        try {
-            $dsn = "pgsql:host={$supabaseHost};port={$supabasePort};dbname={$supabaseDb};sslmode=require";
-            $pdo = new PDO($dsn, $supabaseUser, $supabasePass, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_TIMEOUT => 2
-            ]);
-            $dbConnected = true;
-            $dbMode = 'pgsql';
-            if (@file_exists($pgCacheFile)) @unlink($pgCacheFile);
-        } catch (PDOException $e) {
+        $pgSock = @fsockopen($supabaseHost, (int)$supabasePort, $pgErrNo, $pgErrStr, 1.0);
+        if (!$pgSock) {
             @file_put_contents($pgCacheFile, (string)time());
-            error_log("Supabase Cloud connection error: " . $e->getMessage());
+        } else {
+            fclose($pgSock);
+            try {
+                $dsn = "pgsql:host={$supabaseHost};port={$supabasePort};dbname={$supabaseDb};sslmode=require";
+                $pdo = new PDO($dsn, $supabaseUser, $supabasePass, [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::ATTR_TIMEOUT => 2
+                ]);
+                $dbConnected = true;
+                $dbMode = 'pgsql';
+                if (@file_exists($pgCacheFile)) @unlink($pgCacheFile);
+            } catch (PDOException $e) {
+                @file_put_contents($pgCacheFile, (string)time());
+                error_log("Supabase Cloud connection error: " . $e->getMessage());
+            }
         }
     }
 
@@ -443,7 +449,7 @@ function getAuthUser($pdo, $requiredRole = null) {
  * Native PHP Socket SMTP Client (Works directly with Gmail SMTP ssl://smtp.gmail.com:465)
  */
 function sendDirectSmtpSocket($host, $port, $username, $password, $from, $fromName, $to, $subject, $htmlBody) {
-    $timeout = 10;
+    $timeout = 5;
     $isSsl = ($port == 465 || strpos($host, 'ssl://') !== false);
     $connectHost = ($isSsl && strpos($host, 'ssl://') === false) ? 'ssl://' . $host : $host;
 
@@ -456,9 +462,13 @@ function sendDirectSmtpSocket($host, $port, $username, $password, $from, $fromNa
 
     $readResp = function($s) {
         $out = '';
-        while ($str = fgets($s, 515)) {
+        while (!feof($s)) {
+            $str = fgets($s, 515);
+            if ($str === false) break;
             $out .= $str;
-            if (substr($str, 3, 1) == ' ') break;
+            if (strlen($str) < 4 || $str[3] === ' ') break;
+            $meta = stream_get_meta_data($s);
+            if (!empty($meta['timed_out'])) break;
         }
         return $out;
     };
@@ -708,11 +718,16 @@ function sendEmailOtp($toEmail, $otpCode, $userName = 'Pengguna Cliento', $purpo
         if (!empty($res['success'])) return true;
         $GLOBALS['cliento_last_mail_error'] = $res['error'] ?? 'Koneksi SMTP gagal';
         error_log("sendDirectSmtpSocket failed: " . $GLOBALS['cliento_last_mail_error']);
+        return false;
     } else {
         $GLOBALS['cliento_last_mail_error'] = 'SMTP / API email belum dikonfigurasi.';
     }
 
-    // 4. Fallback to native PHP mail (only on non-SMTP setups where mail() might work)
+    // 4. Fallback to native PHP mail ONLY if enabled on host
+    if (!function_exists('mail')) {
+        return false;
+    }
+
     $headers = [
         'MIME-Version: 1.0',
         'Content-Type: text/html; charset=UTF-8',
@@ -724,7 +739,7 @@ function sendEmailOtp($toEmail, $otpCode, $userName = 'Pengguna Cliento', $purpo
     $sent = false;
     try {
         $sent = @mail($toEmail, $subject, $htmlContent, implode("\r\n", $headers));
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         $sent = false;
     }
     return (bool)$sent;

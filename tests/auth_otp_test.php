@@ -17,9 +17,11 @@ assertTrue(strpos($authPhp, 'expires_at >= CURRENT_TIMESTAMP') === false, 'api/a
 assertTrue(substr_count($authPhp, "gmdate('Y-m-d H:i:s'") >= 8, 'api/auth.php must use UTC gmdate for both insert expires_at and verify SELECT');
 assertTrue(strpos($authPhp, 'if (!$emailSent && !isLocalDev())') !== false, 'api/auth.php must surface real failure in production when email delivery fails');
 
-// 2. Ensure config.php enforces SMTP protocol responses and Message-ID header
+// 2. Ensure config.php enforces SMTP protocol responses, fast timeouts, and PHP 8.4 mail() safety
 assertTrue(strpos($configPhp, 'Message-ID:') !== false, 'config.php sendDirectSmtpSocket must include Message-ID header for Gmail Inbox compliance');
 assertTrue(strpos($configPhp, "MAIL FROM ditolak") !== false && strpos($configPhp, "RCPT TO ditolak") !== false && strpos($configPhp, "Perintah DATA ditolak") !== false, 'config.php sendDirectSmtpSocket must validate SMTP command reply codes');
+assertTrue(strpos($configPhp, "function_exists('mail')") !== false, 'config.php must guard @mail() with function_exists for PHP 8.4 hosts');
+assertTrue(strpos($configPhp, "timed_out") !== false && strpos($configPhp, "@fsockopen") !== false, 'config.php must prevent SMTP read & dead DB socket stalls');
 assertTrue(strpos($configPhp, "define('SMTP_PROVIDER'") !== false && strpos($configPhp, "define('SMTP_PASS'") !== false, 'config.php must support SMTP_* constants from config.local.php');
 
 // 3. Verify UTC expiry window SQL logic on SQLite
