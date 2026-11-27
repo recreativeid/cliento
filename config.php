@@ -258,6 +258,14 @@ try {
             message_body TEXT NOT NULL,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER DEFAULT NULL,
+            name TEXT NOT NULL,
+            offer_sentence TEXT DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         ");
     }
 
@@ -283,14 +291,14 @@ try {
         $chkTpl = $pdo->query("SELECT id FROM templates LIMIT 1")->fetch();
         if (!$chkTpl) {
             $tplSeed = $pdo->prepare("INSERT OR IGNORE INTO templates (category_name, greeting_type, message_body) VALUES (?, ?, ?)");
-            $tplSeed->execute(['Cafe', 'formal', 'Hallo kak dgn pemilik/team manajemen {nama_tempat}? Kami dari tim cliento melihat perkembangan cafe kakak di {alamat} sangat menarik. Ada waktu 5 menit untuk sharing optimasi prospek?']);
-            $tplSeed->execute(['Resto', 'humas', 'Selamat siang bapak/ibu manajemen {nama_tempat} di {alamat}. Kami ingin berbagi solusi otomasi data pelanggan & outreach B2B. Boleh kami kirimkan detail singkatnya?']);
-            $tplSeed->execute(['Bengkel', 'casual', 'Halo kak {nama_tempat}! Kami melihat profil bengkel kakak di {alamat} sangat bagus. Tertarik melihat demo perluasan pelanggan digital?']);
+            $tplSeed->execute(['Kafe', 'formal', 'Hallo kak dgn pemilik/team manajemen {nama_tempat}? Kami dari tim cliento melihat perkembangan {nama_tempat} di {alamat} sangat menarik. Ada waktu 5 menit untuk sharing optimasi prospek?']);
+            $tplSeed->execute(['Restoran', 'humas', 'Selamat siang bapak/ibu manajemen {nama_tempat} di {alamat}. Kami ingin berbagi solusi otomasi data pelanggan & outreach B2B. Boleh kami kirimkan detail singkatnya?']);
+            $tplSeed->execute(['Bengkel Mobil', 'casual', 'Halo kak {nama_tempat}! Kami melihat profil usaha kakak di {alamat} sangat bagus. Tertarik melihat demo perluasan pelanggan digital?']);
         }
         $chkCat = $pdo->query("SELECT id FROM categories LIMIT 1")->fetch();
         if (!$chkCat) {
             $catSeed = $pdo->prepare("INSERT OR IGNORE INTO categories (name) VALUES (?)");
-            foreach (['Cafe & Coffee Shop', 'Restoran & Kuliner', 'Bengkel & Otomotif', 'Jasa Laundry & Cuci', 'Salon & Barbershop', 'Klinik & Rumah Sakit'] as $cn) {
+            foreach (getIndonesianBusinessCategories() as $cn) {
                 $catSeed->execute([$cn]);
             }
         }
@@ -298,6 +306,70 @@ try {
 } catch (Exception $e) {
     // Ignore if table already exists or locked
 }
+}
+
+/**
+ * Daftar lengkap jenis tempat dan kategori bisnis di Indonesia (masing-masing berdiri sendiri).
+ */
+function getIndonesianBusinessCategories() {
+    return [
+        // Kuliner & F&B
+        'Kafe', 'Kedai Kopi', 'Restoran', 'Rumah Makan', 'Warung Makan', 'Warteg',
+        'Warung Bakso', 'Warung Soto', 'Warung Mie Ayam', 'Warung Sate', 'Seafood',
+        'Ayam Goreng & Geprek', 'Fast Food', 'Bakery', 'Toko Roti', 'Toko Kue',
+        'Katering', 'Minuman Kekinian', 'Kedai Es Krim', 'Depot Air Minum',
+        // Otomotif & Transportasi
+        'Bengkel Mobil', 'Bengkel Motor', 'Bengkel Las', 'Cuci Mobil', 'Cuci Motor',
+        'Toko Ban', 'Toko Velg', 'Toko Aki', 'Toko Sparepart Otomotif', 'Toko Oli',
+        'Dealer Mobil', 'Dealer Motor', 'Showroom Mobil Bekas', 'Showroom Motor Bekas',
+        'Rental Mobil', 'Rental Motor', 'Jasa Travel', 'Rental Bus Pariwisata', 'SPBU',
+        // Jasa Perawatan, Servis & Kebersihan
+        'Laundry', 'Laundry Sepatu', 'Cleaning Service', 'Sedot WC', 'Pest Control',
+        'Service AC', 'Service Elektronik', 'Service Kulkas & Mesin Cuci',
+        'Service Komputer', 'Service Laptop', 'Service HP', 'Tukang Kunci',
+        // Kecantikan, Grooming & Kesehatan
+        'Salon Kecantikan', 'Barbershop', 'Pangkas Rambut', 'Klinik Skincare',
+        'Spa', 'Pijat Refleksi', 'Studio Nail Art', 'Studio Sulam Alis',
+        'Rumah Sakit', 'RSIA', 'Puskesmas', 'Klinik Umum', 'Klinik Gigi',
+        'Praktek Dokter', 'Praktek Bidan', 'Apotek', 'Toko Obat',
+        'Laboratorium Medis', 'Optik', 'Fisioterapi', 'Khitan Center',
+        // Pendidikan & Pelatihan
+        'PAUD', 'TK', 'SD', 'SMP', 'SMA', 'SMK', 'Universitas', 'Politeknik',
+        'Akademi', 'Bimbingan Belajar (Bimbel)', 'Les Privat', 'Kursus Bahasa',
+        'Kursus Komputer', 'LPK / Pelatihan Kerja', 'Pondok Pesantren', 'SLB',
+        // Perdagangan & Retail
+        'Minimarket', 'Supermarket', 'Swalayan', 'Toko Sembako', 'Toko Kelontong',
+        'Agen Grosir', 'Toko Pakaian', 'Butik', 'Distro', 'Konveksi', 'Penjahit',
+        'Toko Hijab', 'Toko Sepatu', 'Toko Tas', 'Toko Kosmetik', 'Toko Parfum',
+        'Toko Emas', 'Toko Jam Tangan', 'Toko Kacamata', 'Toko Elektronik',
+        'Konter HP & Pulsa', 'Toko Komputer', 'Toko Bangunan', 'Toko Cat',
+        'Toko Besi', 'Toko Kaca & Aluminium', 'Toko Furniture / Mebel',
+        'Toko Buku', 'Toko ATK', 'Fotocopy', 'Percetakan', 'Sablon',
+        'Pet Shop', 'Toko Pakan Ternak', 'Toko Pertanian', 'Toko Pupuk & Bibit',
+        'Florist / Toko Bunga', 'Toko Mainan', 'Toko Alat Olahraga', 'Toko Alat Musik',
+        'Toko Oleh-oleh', 'Toko Bahan Kue', 'Toko Sepeda', 'Toko Alat Kesehatan',
+        'Toko Helm', 'Toko Ikan Hias', 'Toko Kerajinan',
+        // Properti, Konstruksi & Akomodasi
+        'Hotel', 'Villa', 'Resort', 'Guest House', 'Homestay', 'Kos-kosan',
+        'Kontrakan', 'Apartemen', 'Developer Perumahan', 'Agen Properti',
+        'Kontraktor Bangunan', 'Arsitek', 'Desain Interior', 'Mandor Renovasi',
+        'Gudang / Warehouse',
+        // Perusahaan, Jasa Profesional, Keuangan & Kreatif
+        'Kantor PT', 'Kantor CV', 'Pabrik / Manufaktur', 'Distributor', 'Supplier',
+        'Eksportir / Importir', 'Ekspedisi', 'Cargo', 'Notaris & PPAT',
+        'Kantor Hukum / Advokat', 'Konsultan Pajak', 'Kantor Akuntan',
+        'Konsultan Bisnis', 'Digital Agency', 'Software House', 'Studio Foto',
+        'Jasa Fotografi', 'Wedding Organizer', 'Event Organizer', 'Sewa Alat Pesta',
+        'Studio Musik', 'Coworking Space', 'Bank', 'BPR', 'Koperasi',
+        'Pegadaian', 'Asuransi', 'Travel Umrah & Haji', 'Biro Wisata',
+        // Agribisnis
+        'Peternakan', 'Perikanan / Tambak', 'Pertanian / Perkebunan', 'Penggilingan Padi',
+        // Olahraga, Wisata, Publik & Sosial
+        'Gym & Fitness', 'Lapangan Futsal', 'Lapangan Badminton', 'Kolam Renang',
+        'Tempat Wisata', 'Gedung Pertemuan', 'Masjid', 'Gereja', 'Vihara', 'Pura',
+        'Panti Asuhan', 'Yayasan Sosial', 'Kantor Dinas', 'Kantor Kecamatan',
+        'Kantor Kelurahan / Desa', 'Pasar Tradisional', 'Usaha Lokal / Umum'
+    ];
 }
 
 /**

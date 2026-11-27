@@ -5549,7 +5549,7 @@ const ScraperClient = {
             let phoneDisplay = `<span style="color: #94a3b8;">-</span>`;
             if (hasPhone) {
                 if (isMobile) {
-                    phoneDisplay = `<a href="${this.escapeText(waUrl)}" target="_blank" rel="noopener" style="color: #16a34a; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="Coba WhatsApp; akun aktif belum diverifikasi"><i class="fa-brands fa-whatsapp"></i> ${this.escapeText(it.phone)}</a>`;
+                    phoneDisplay = `<a href="${this.escapeText(waUrl)}" class="btn-wa-phone-link" style="color: #16a34a; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="Klik untuk buka Popup Kirim WhatsApp"><i class="fa-brands fa-whatsapp"></i> ${this.escapeText(it.phone)}</a>`;
                 } else {
                     phoneDisplay = `<a href="tel:${cleanDigits}" style="color: #2563eb; font-weight: 500; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="Nomor telepon dari sumber"><i class="fa-solid fa-phone"></i> ${this.escapeText(it.phone)}</a>`;
                 }
@@ -5568,9 +5568,9 @@ const ScraperClient = {
                 ? `<span style="font-size: 0.72rem; color: #475569; display: inline-flex; align-items: center; gap: 4px;"><i class="fa-regular fa-clock" style="color: #94a3b8; font-size: 0.68rem;"></i> ${this.escapeText(it.opening_hours)}</span>`
                 : `<span style="color: #94a3b8;">-</span>`;
 
-            const waBtn = isMobile
-                ? `<a href="${waUrl}" target="_blank" class="btn btn-wa btn-sm" title="Chat WhatsApp Langsung"><i class="fa-brands fa-whatsapp"></i> WA</a>`
-                : `<button class="btn btn-outline btn-sm" disabled style="opacity: 0.35; cursor: not-allowed; font-size: 0.72rem;" title="Tidak ada nomor WhatsApp terdaftar"><i class="fa-brands fa-whatsapp"></i> WA</button>`;
+            const waBtn = hasPhone
+                ? `<button type="button" class="btn btn-wa btn-sm btn-open-wa-composer" title="Buka Popup Pesan WhatsApp" data-id="${it.id}"><i class="fa-brands fa-whatsapp"></i> WA</button>`
+                : `<button type="button" class="btn btn-outline btn-sm btn-open-wa-composer" style="opacity: 0.7; font-size: 0.72rem;" title="Nomor tidak tercantum — klik untuk tulis/salin pesan atau isi nomor WA manual" data-id="${it.id}"><i class="fa-brands fa-whatsapp"></i> WA</button>`;
 
             tr.innerHTML = `
                 <td style="width: 30px; text-align: center;">${idx + 1}</td>
@@ -5591,9 +5591,6 @@ const ScraperClient = {
                         <button class="btn btn-outline btn-sm btn-quick-copy" title="Salin Pesan Penawaran Terpersonalisasi" data-id="${it.id}">
                             <i class="fa-solid fa-copy"></i> Salin
                         </button>
-                        <button class="btn btn-sm btn-open-gemini-pitch" title="Analisis Celah & Buat Naskah Outreach" data-id="${it.id}" style="background: #0f172a; color: #ffffff; border: 1px solid #0f172a; font-size: 0.74rem; font-weight: 600; padding: 4px 8px; border-radius: 6px;">
-                            <i class="fa-solid fa-bullseye"></i> Peluang &amp; Pitch
-                        </button>
                         ${waBtn}
                     </div>
                 </td>
@@ -5609,16 +5606,23 @@ const ScraperClient = {
             }
 
             // Quick Copy Handler
-            tr.querySelector('.btn-quick-copy').addEventListener('click', () => {
+            tr.querySelector('.btn-quick-copy')?.addEventListener('click', () => {
                 const pitch = window.TemplateManager ? window.TemplateManager.getPersonalizedMessage(it) : `Halo ${it.name}, kami dari tim cliento.`;
-                navigator.clipboard.writeText(pitch);
+                navigator.clipboard?.writeText(pitch);
                 this.showToast(`✓ Pesan penawaran untuk ${it.name} berhasil disalin!`);
             });
 
-            // Open Gemini AI Pitch Modal
-            tr.querySelector('.btn-open-gemini-pitch').addEventListener('click', () => {
-                this.openAIPitchModal(it);
-            });
+            // Open Smart WhatsApp Composer Popup
+            const openWaHandler = (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                if (window.TemplateManager?.openWhatsAppComposer) {
+                    window.TemplateManager.openWhatsAppComposer(it);
+                }
+            };
+            tr.querySelector('.btn-open-wa-composer')?.addEventListener('click', openWaHandler);
+            if (isMobile) {
+                tr.querySelector('.btn-wa-phone-link')?.addEventListener('click', openWaHandler);
+            }
 
             tbody.appendChild(tr);
         });
@@ -5991,53 +5995,10 @@ const ScraperClient = {
         this.updateStandardPitchText();
     },
 
-    openAIPitchModal(item, initialMode = 'standard') {
-        this.activeModalItem = item;
-        const modal = document.getElementById('modal-ai-pitch');
-        const bizName = document.getElementById('ai-modal-biz-name');
-        const bizMeta = document.getElementById('ai-modal-biz-meta');
-        const inputBizName = document.getElementById('ai-input-biz-name');
-        const statusEl = document.getElementById('ai-pitch-status');
-        const tabStandard = document.getElementById('tab-btn-standard');
-        const tabGemini = document.getElementById('tab-btn-gemini');
-        const panelStandard = document.getElementById('outreach-panel-standard');
-        const panelGemini = document.getElementById('outreach-panel-gemini');
-
-        if (bizName) bizName.textContent = item.name;
-        if (inputBizName) inputBizName.value = item.name;
-        if (bizMeta) bizMeta.textContent = `${item.category} • ${item.address} • Rating ${item.rating} (${item.reviews_count || '0'} ulasan)`;
-        if (statusEl) statusEl.textContent = '';
-
-        // Reset promo image if modal opened afresh
-        this.uploadedPromoImage = null;
-        const fileInput = document.getElementById('promo-image-file');
-        const previewCard = document.getElementById('promo-image-preview-card');
-        const dropzone = document.getElementById('promo-image-dropzone');
-        if (fileInput) fileInput.value = '';
-        if (previewCard) previewCard.style.display = 'none';
-        if (dropzone) dropzone.style.display = 'block';
-
-        // Detect Data-Driven Opportunities and Render Checklist
-        this.detectedOpportunities = this.detectOpportunities(item);
-        this.renderOpportunityChecklist();
-
-        // Update standard template text with detected opportunity
-        this.updateStandardPitchText();
-
-        // Switch to appropriate tab
-        if (initialMode === 'gemini') {
-            tabGemini?.classList.add('active');
-            tabStandard?.classList.remove('active');
-            if (panelGemini) panelGemini.style.display = 'block';
-            if (panelStandard) panelStandard.style.display = 'none';
-        } else {
-            tabStandard?.classList.add('active');
-            tabGemini?.classList.remove('active');
-            if (panelStandard) panelStandard.style.display = 'block';
-            if (panelGemini) panelGemini.style.display = 'none';
+    openAIPitchModal(item) {
+        if (window.TemplateManager && window.TemplateManager.openWhatsAppComposer) {
+            window.TemplateManager.openWhatsAppComposer(item);
         }
-
-        if (modal) modal.classList.add('active');
     },
 
     updateStandardPitchText() {
@@ -6230,22 +6191,24 @@ const ScraperClient = {
         set('insight-gamma-zoning', 'Sesuai sumber'); set('insight-gamma-access', 'Tidak dinilai'); set('insight-gamma-cadastral', 'Perlu pemeriksaan peta');
         set('insight-gamma-summary', 'Tidak ada jaminan presisi GPS atau verifikasi batas wilayah dari data ini.');
         const waBtn = document.getElementById('btn-wa-360-direct');
-        if (waBtn) { waBtn.style.opacity = '0.5'; waBtn.style.pointerEvents = 'none'; waBtn.title = 'Akun WhatsApp belum diverifikasi'; }
+        if (waBtn) {
+            const hasPhone = item.phone && item.phone !== '-';
+            waBtn.style.opacity = hasPhone ? '1' : '0.65';
+            waBtn.style.pointerEvents = 'auto';
+            waBtn.title = hasPhone ? 'Buka Popup Pesan WhatsApp' : 'Nomor tidak tercantum — klik untuk tulis pesan manual';
+            waBtn.onclick = (e) => {
+                e.preventDefault();
+                modal.classList.remove('active');
+                if (window.TemplateManager?.openWhatsAppComposer) {
+                    window.TemplateManager.openWhatsAppComposer(item);
+                }
+            };
+        }
         modal.classList.add('active');
     },
     bind360ModalEvents() {
-        const btnJumpAI = document.getElementById('btn-jump-to-ai-pitch');
         const btnCopySummary = document.getElementById('btn-copy-360-summary');
         const modal360 = document.getElementById('modal-360-insight');
-
-        if (btnJumpAI) {
-            btnJumpAI.addEventListener('click', () => {
-                if (modal360) modal360.classList.remove('active');
-                if (this.activeModalItem) {
-                    this.openAIPitchModal(this.activeModalItem, 'gemini');
-                }
-            });
-        }
 
         if (btnCopySummary) {
             btnCopySummary.addEventListener('click', () => {
@@ -7101,7 +7064,7 @@ window.ScraperClient = ScraperClient;
                 const waUrl = window.TemplateManager ? window.TemplateManager.getWhatsAppUrl(leadItem) : (hasPhone ? `https://wa.me/${waNumber}` : '#');
 
                 const phoneDisplay = hasPhone 
-                    ? `<a href="${waUrl}" target="_blank" style="color: #16a34a; font-weight: 600; text-decoration: none;"><i class="fa-brands fa-whatsapp"></i> ${phone}</a>` 
+                    ? `<a href="${waUrl}" class="btn-mdb-wa" style="color: #16a34a; font-weight: 600; text-decoration: none;"><i class="fa-brands fa-whatsapp"></i> ${phone}</a>` 
                     : '<span style="color: #cbd5e1;">-</span>';
 
                 const webDisplay = website 
@@ -7125,13 +7088,9 @@ window.ScraperClient = ScraperClient;
                             <button class="btn btn-outline btn-sm btn-mdb-copy" title="Salin Pesan Penawaran Terpersonalisasi" style="font-size: 0.68rem; padding: 4px 7px;">
                                 <i class="fa-solid fa-copy"></i> Salin
                             </button>
-                            <button class="btn btn-primary btn-sm btn-mdb-pitch" title="Buat Pesan Sales Otomatis dengan Gemini AI" style="font-size: 0.68rem; padding: 4px 7px; background: linear-gradient(135deg, #2563eb, #7c3aed); border: none;">
-                                <i class="fa-solid fa-wand-magic-sparkles"></i> AI Pitch
-                            </button>
-                            ${hasPhone ? `
-                            <a href="${waUrl}" target="_blank" class="btn btn-wa btn-sm" title="Chat WhatsApp Langsung" style="font-size: 0.68rem; padding: 4px 7px;">
+                            <button type="button" class="btn btn-wa btn-sm btn-mdb-wa-btn" title="Buka Popup Pesan WhatsApp" style="font-size: 0.68rem; padding: 4px 7px;">
                                 <i class="fa-brands fa-whatsapp"></i> WA
-                            </a>` : ''}
+                            </button>
                         </div>
                     </td>
                 `;
@@ -7139,14 +7098,18 @@ window.ScraperClient = ScraperClient;
                 // Quick Copy Handler
                 tr.querySelector('.btn-mdb-copy')?.addEventListener('click', () => {
                     const pitch = window.TemplateManager ? window.TemplateManager.getPersonalizedMessage(leadItem) : `Halo ${leadItem.name}, kami dari tim cliento.`;
-                    navigator.clipboard.writeText(pitch);
+                    navigator.clipboard?.writeText(pitch);
                     if (window.ScraperClient) window.ScraperClient.showToast(`Pesan penawaran untuk ${leadItem.name} berhasil disalin!`);
                 });
 
-                // Open Gemini AI Pitch Modal
-                tr.querySelector('.btn-mdb-pitch')?.addEventListener('click', () => {
-                    if (window.ScraperClient) window.ScraperClient.openAIPitchModal(leadItem);
-                });
+                const openMdbWa = (e) => {
+                    if (e) { e.preventDefault(); e.stopPropagation(); }
+                    if (window.TemplateManager?.openWhatsAppComposer) {
+                        window.TemplateManager.openWhatsAppComposer(leadItem);
+                    }
+                };
+                tr.querySelector('.btn-mdb-wa-btn')?.addEventListener('click', openMdbWa);
+                tr.querySelector('.btn-mdb-wa')?.addEventListener('click', openMdbWa);
 
                 tbody.appendChild(tr);
             });

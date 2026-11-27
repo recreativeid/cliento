@@ -108,6 +108,16 @@ CREATE TABLE IF NOT EXISTS public.templates (
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 10. REGISTERED PRODUCTS / SERVICES OFFERED
+CREATE TABLE IF NOT EXISTS public.products (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT DEFAULT NULL,
+    name VARCHAR(200) NOT NULL,
+    offer_sentence TEXT DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ============================================================================
 -- SEED INITIAL DATA (Default Admin & Customer Demo Accounts)
 -- ============================================================================
@@ -163,23 +173,39 @@ VALUES (
     status = 'active',
     is_verified = 1;
 
--- Initial Business Categories
+-- Initial Business Categories (Individually Separated Indonesian Categories)
 INSERT INTO public.categories (name) VALUES
-    ('Cafe & Coffee Shop'),
-    ('Restoran & Kuliner'),
-    ('Bengkel & Otomotif'),
-    ('Jasa Laundry & Cuci'),
-    ('Salon & Barbershop'),
-    ('Sekolah & Bimbel'),
-    ('Klinik & Rumah Sakit'),
-    ('Hotel & Penginapan')
+    ('Kafe'),
+    ('Restoran'),
+    ('Warung Makan'),
+    ('Bengkel Mobil'),
+    ('Bengkel Motor'),
+    ('Laundry'),
+    ('Barbershop'),
+    ('Salon Kecantikan'),
+    ('Apotek'),
+    ('Klinik Umum'),
+    ('Rumah Sakit'),
+    ('PAUD'),
+    ('TK'),
+    ('SD'),
+    ('SMP'),
+    ('SMA'),
+    ('SMK'),
+    ('Universitas'),
+    ('Bimbingan Belajar (Bimbel)'),
+    ('Hotel'),
+    ('Minimarket'),
+    ('Toko Bangunan'),
+    ('Toko Pakaian'),
+    ('Pet Shop')
 ON CONFLICT (name) DO NOTHING;
 
 -- Initial Templates
 INSERT INTO public.templates (category_name, greeting_type, message_body) VALUES
-    ('Cafe', 'formal', 'Hallo kak dgn pemilik/team manajemen {nama_tempat}? Kami dari tim cliento AI Sales Intelligence melihat perkembangan cafe kakak di {alamat} sangat menarik. Kami ingin berbagi strategi optimasi sales & kunjungan pelanggan baru melalui workflow otomatisasi. Apakah ada waktu 5 menit untuk sharing kak? Terima kasih!'),
-    ('Resto', 'humas', 'Selamat siang bapak/ibu bagian humas & manajemen {nama_tempat}. Kami dari cliento sales intelligence memperhatikan bisnis kuliner bapak/ibu yang berkembang pesat di {alamat}. Kami memiliki solusi pencarian prospek kemitraan B2B & engagement otomatis. Boleh kami kirimkan detail singkatnya?'),
-    ('Bengkel', 'casual', 'Halo kak {nama_tempat}! Salam kenal dari tim cliento. Kami melihat rating bengkel kakak {rating} sangat bagus di area {alamat}. Kami membantu bisnis otomotif memperluas jangkauan pelanggan servis melalui digital outreach. Tertarik melihat contoh demonya?')
+    ('Kafe', 'formal', 'Hallo kak dgn pemilik/team manajemen {nama_tempat}? Kami dari tim cliento AI Sales Intelligence melihat perkembangan usaha kakak di {alamat} sangat menarik. Kami ingin berbagi strategi optimasi sales & kunjungan pelanggan baru. Apakah ada waktu 5 menit untuk sharing kak? Terima kasih!'),
+    ('Restoran', 'humas', 'Selamat siang bapak/ibu bagian humas & manajemen {nama_tempat}. Kami dari cliento sales intelligence memperhatikan bisnis kuliner bapak/ibu yang berkembang pesat di {alamat}. Kami memiliki solusi pencarian prospek & outreach otomatis. Boleh kami kirimkan detail singkatnya?'),
+    ('Bengkel Mobil', 'casual', 'Halo kak {nama_tempat}! Salam kenal dari tim cliento. Kami melihat profil usaha kakak di {alamat}. Kami membantu bisnis memperluas jangkauan pelanggan baru secara terarah. Tertarik melihat detailnya?')
 ON CONFLICT (category_name) DO NOTHING;
 
 -- Initial System Settings

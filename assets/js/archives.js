@@ -639,12 +639,9 @@ const ArchiveManager = {
 
                         <!-- WhatsApp Action -->
                         <div style="display: flex; gap: 4px;">
-                            <button class="btn btn-outline btn-sm btn-open-ai-pitch-card" title="Buka AI Sales Outreach" style="font-size: 0.72rem; padding: 4px 8px;">
-                                <i class="fa-solid fa-wand-magic-sparkles" style="color: #2563eb;"></i>
-                            </button>
-                            <a href="${waUrl}" target="_blank" class="btn btn-wa btn-sm">
+                            <button type="button" class="btn btn-wa btn-sm btn-archive-wa">
                                 <i class="fa-brands fa-whatsapp"></i> Chat WA
-                            </a>
+                            </button>
                         </div>
                     </div>
                 `;
@@ -652,11 +649,14 @@ const ArchiveManager = {
                 // Status toggle listeners
                 const btnCheck = card.querySelector('.btn-check');
                 const btnCross = card.querySelector('.btn-cross');
-                const btnAIPitch = card.querySelector('.btn-open-ai-pitch-card');
+                const btnArchiveWa = card.querySelector('.btn-archive-wa');
 
-                if (btnAIPitch) {
-                    btnAIPitch.addEventListener('click', () => {
-                        if (window.ScraperClient) window.ScraperClient.openAIPitchModal(it, 'standard');
+                if (btnArchiveWa) {
+                    btnArchiveWa.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        if (window.TemplateManager?.openWhatsAppComposer) {
+                            window.TemplateManager.openWhatsAppComposer(it);
+                        }
                     });
                 }
 
@@ -707,14 +707,24 @@ const ArchiveManager = {
                         </div>
                     </td>
                     <td style="text-align: right;">
-                        <a href="${waUrl}" target="_blank" class="btn btn-wa btn-sm">
+                        <button type="button" class="btn btn-wa btn-sm btn-archive-table-wa">
                             <i class="fa-brands fa-whatsapp"></i> Chat WA
-                        </a>
+                        </button>
                     </td>
                 `;
 
                 const btnCheck = tr.querySelector('.btn-check');
                 const btnCross = tr.querySelector('.btn-cross');
+                const btnTableWa = tr.querySelector('.btn-archive-table-wa');
+
+                if (btnTableWa) {
+                    btnTableWa.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        if (window.TemplateManager?.openWhatsAppComposer) {
+                            window.TemplateManager.openWhatsAppComposer(it);
+                        }
+                    });
+                }
 
                 btnCheck.addEventListener('click', () => {
                     const next = it.status === 'prospect' ? 'none' : 'prospect';

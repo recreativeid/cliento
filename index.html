@@ -892,7 +892,7 @@
                   <th>Medsos / Web</th>
                   <th>Jam Operasional</th>
                   <th>Rating</th>
-                  <th style="text-align: right; width: 230px;">Aksi Sales & Outreach</th>
+                  <th style="text-align: right; width: 150px;">Aksi Sales &amp; Outreach</th>
                 </tr>
               </thead>
               <tbody id="scraped-table-body"></tbody>
@@ -1186,36 +1186,66 @@
           <div class="card-title">
             <i class="fa-solid fa-message"></i> Kelola Template Pesan WhatsApp
           </div>
-          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-            <button class="btn btn-outline btn-sm" id="btn-add-category">
-              <i class="fa-solid fa-plus"></i> Tambah Kategori
-            </button>
-            <button class="btn btn-primary btn-sm" id="btn-open-ai-template-gen" style="background: linear-gradient(135deg, #2563eb, #7c3aed); border: none;">
-              <i class="fa-solid fa-wand-magic-sparkles"></i> ✨ Racik Template via AI
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+            <span id="template-active-badge" class="badge badge-blue" style="font-size: 0.72rem;">Kategori: -</span>
+            <button type="button" class="btn btn-outline btn-sm" id="btn-add-category">
+              <i class="fa-solid fa-plus"></i> Tambah Kategori Baru
             </button>
           </div>
         </div>
 
         <div class="template-split-grid">
-          <!-- Left Column: Template Editor -->
+          <!-- Left Column: Searchable Sorted Indonesian Category Box + Template Editor -->
           <div>
             <div class="form-group">
-              <label class="form-label">Pilih Kategori Tempat</label>
-              <select id="template-category-select" class="form-select"></select>
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+                <label class="form-label" style="margin-bottom: 0;">Pilih Kategori Tempat</label>
+                <span id="template-category-count" style="font-size: 0.7rem; color: #64748b; font-weight: 600;">0 kategori usaha</span>
+              </div>
+
+              <!-- Search + Sort Toolbar -->
+              <div class="tpl-cat-toolbar">
+                <div style="position: relative; flex: 1; min-width: 170px;">
+                  <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.76rem;"></i>
+                  <input type="text" id="template-category-search" class="form-input" placeholder="Cari bisnis di Indonesia (cth: laundry, bengkel, kafe, apotek)..." style="padding-left: 30px; padding-right: 26px; font-size: 0.76rem; height: 34px;">
+                  <button type="button" id="btn-clear-cat-search" title="Bersihkan pencarian" style="display: none; position: absolute; right: 7px; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: #94a3b8; cursor: pointer; font-size: 0.78rem;">
+                    <i class="fa-solid fa-xmark"></i>
+                  </button>
+                </div>
+                <select id="template-category-sort" class="form-select" style="width: auto; min-width: 165px; font-size: 0.74rem; height: 34px; padding: 4px 10px;">
+                  <option value="az">Urutkan: A - Z</option>
+                  <option value="za">Urutkan: Z - A</option>
+                  <option value="saved">Template Tersimpan Dulu</option>
+                </select>
+              </div>
+
+              <!-- Scrollable Moderately-Sized Category List Box -->
+              <div id="template-category-listbox" class="tpl-cat-box" role="listbox" aria-label="Daftar Kategori Bisnis di Indonesia"></div>
+
+              <!-- Quick Inline Add Category Bar -->
+              <div class="tpl-cat-add-row">
+                <input type="text" id="template-category-new-input" class="form-input" placeholder="Ketik jenis usaha baru jika belum ada di daftar..." style="font-size: 0.75rem; height: 32px; flex: 1;">
+                <button type="button" class="btn btn-outline btn-sm" id="btn-save-new-category" style="font-size: 0.74rem; white-space: nowrap; height: 32px;">
+                  <i class="fa-solid fa-plus"></i> Tambah
+                </button>
+              </div>
+
+              <!-- Hidden native select kept synced for backward compatibility -->
+              <select id="template-category-select" class="form-select" style="display: none;"></select>
             </div>
 
             <div class="form-group">
               <label class="form-label">Pilihan Gaya Sapaan</label>
               <select id="template-greeting-select" class="form-select">
                 <option value="formal">Hallo kak dgn pemilik/team manajemen {nama_tempat}?</option>
-                <option value="humas">Selamat siang bapak/ibu bagian humas & manajemen {nama_tempat}.</option>
+                <option value="humas">Selamat siang bapak/ibu bagian humas &amp; manajemen {nama_tempat}.</option>
                 <option value="casual">Halo kak {nama_tempat}! Salam kenal dari tim cliento.</option>
               </select>
             </div>
 
             <div class="form-group">
               <label class="form-label">Isi Pesan WhatsApp</label>
-              <textarea id="template-body-input" class="form-textarea" rows="7" 
+              <textarea id="template-body-input" class="form-textarea" rows="6" 
                         placeholder="Ketik template pesan di sini..."></textarea>
               
               <!-- Variable insertion chips -->
@@ -1227,38 +1257,68 @@
                   <span class="var-chip" data-tag="{alamat}">+ {alamat}</span>
                   <span class="var-chip" data-tag="{rating}">+ {rating}</span>
                   <span class="var-chip" data-tag="{telepon}">+ {telepon}</span>
+                  <span class="var-chip" data-tag="{produk}" style="background: #ecfdf5; color: #059669; border-color: #a7f3d0;">+ {produk}</span>
                 </div>
               </div>
             </div>
 
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 8px; flex-wrap: wrap;">
               <span id="template-save-status" style="font-size: 0.78rem; font-weight: 600;"></span>
-              <button class="btn btn-primary" id="btn-save-template">
-                <i class="fa-solid fa-floppy-disk"></i> Simpan Template
+              <button type="button" class="btn btn-primary" id="btn-save-template">
+                <i class="fa-solid fa-floppy-disk"></i> Simpan Template Kategori Ini
               </button>
             </div>
           </div>
 
-          <!-- Right Column: WhatsApp Mockup Phone Preview -->
-          <div>
-            <label class="form-label" style="text-align: center; margin-bottom: 8px;">
-              <i class="fa-brands fa-whatsapp" style="color: #25d366;"></i> Pratinjau Tampilan Pesan di WhatsApp
-            </label>
-            <div class="wa-mockup-frame">
-              <div class="wa-header">
-                <img src="assets/images/logo-icon.png" alt="cliento" style="width: 28px; height: 28px; border-radius: 50%; object-fit: contain; background: #ffffff; padding: 2px; box-shadow: 0 1px 3px rgba(0,0,0,0.12);">
-                <div>
-                  <div style="font-weight: 700; font-size: 0.85rem;">cliento Sales Intelligence</div>
-                  <div style="font-size: 0.65rem; opacity: 0.85;">Online</div>
+          <!-- Right Column: WhatsApp Preview + Manual Offered Product Catalog -->
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div>
+              <label class="form-label" style="text-align: center; margin-bottom: 8px;">
+                <i class="fa-brands fa-whatsapp" style="color: #25d366;"></i> Pratinjau Tampilan Pesan di WhatsApp
+              </label>
+              <div class="wa-mockup-frame">
+                <div class="wa-header">
+                  <img src="assets/images/logo-icon.png" alt="cliento" style="width: 28px; height: 28px; border-radius: 50%; object-fit: contain; background: #ffffff; padding: 2px; box-shadow: 0 1px 3px rgba(0,0,0,0.12);">
+                  <div>
+                    <div style="font-weight: 700; font-size: 0.85rem;">cliento Sales Intelligence</div>
+                    <div style="font-size: 0.65rem; opacity: 0.85;">Online</div>
+                  </div>
+                </div>
+
+                <div class="wa-bubble">
+                  <div id="wa-preview-text">
+                    Hallo kak dgn pemilik/team manajemen <strong>Kopi Senja Utama</strong>?
+                  </div>
+                  <span class="wa-time">12:30 ✓✓</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Offered Products / Services Manual Manager -->
+            <div class="tpl-product-card">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px;">
+                <div style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                  <i class="fa-solid fa-box-open" style="color: #2563eb;"></i> Opsi Produk / Layanan yang Ditawarkan
+                </div>
+                <span id="template-product-count" class="badge badge-blue" style="font-size: 0.66rem;">0 produk</span>
+              </div>
+              <p style="font-size: 0.7rem; color: #64748b; margin: 0 0 10px; line-height: 1.4;">
+                Tambahkan jenis produk/jasa yang Anda tawarkan beserta kalimat penawarannya. Saat klik tombol WhatsApp setelah scraping, Anda bisa langsung menyisipkan produk ini ke chat.
+              </p>
+
+              <input type="hidden" id="product-edit-id" value="">
+              <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;">
+                <input type="text" id="product-name-input" class="form-input" placeholder="Nama produk/layanan (misal: Paket Website UMKM, Jasa Kelola Gmaps)" style="font-size: 0.76rem; height: 34px;">
+                <textarea id="product-offer-input" class="form-textarea" rows="2" placeholder="Kalimat tambahan jika menawarkan produk ini (opsional — jika kosong akan dibuatkan kalimat penawaran otomatis)" style="font-size: 0.74rem;"></textarea>
+                <div style="display: flex; justify-content: flex-end; gap: 6px;">
+                  <button type="button" class="btn btn-outline btn-sm" id="btn-cancel-product-edit" style="display: none; font-size: 0.73rem;">Batal Edit</button>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-save-product" style="font-size: 0.74rem;">
+                    <i class="fa-solid fa-plus"></i> Tambah Produk
+                  </button>
                 </div>
               </div>
 
-              <div class="wa-bubble">
-                <div id="wa-preview-text">
-                  Hallo kak dgn pemilik/team manajemen <strong>Kopi Senja Utama</strong>?
-                </div>
-                <span class="wa-time">12:30 ✓✓</span>
-              </div>
+              <div id="template-products-list" class="tpl-products-scroll"></div>
             </div>
           </div>
         </div>
@@ -1658,235 +1718,114 @@
     </div>
   </div>
 
-  <!-- Modal: WhatsApp Outreach & Gemini AI Closer (2-Mode: Template Standar & AI Auto-Pitch) -->
-  <div id="modal-ai-pitch" class="modal-backdrop">
-    <div class="modal-sheet" style="max-width: 630px; max-height: 90vh; overflow-y: auto;">
-      <div class="d-flex justify-between align-center" style="margin-bottom: 12px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div style="background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem;">
+  <!-- Modal: Popup Kirim WhatsApp Pintar (Pilih/Sortir Template, Custom/Dari Nol, Variabel & Penawaran Produk) -->
+  <div id="modal-wa-composer" class="modal-backdrop">
+    <div class="modal-sheet" style="max-width: 680px; max-height: 92vh; overflow-y: auto;">
+      <div class="d-flex justify-between align-center" style="margin-bottom: 12px; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="background: #16a34a; color: #fff; width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0;">
             <i class="fa-brands fa-whatsapp"></i>
           </div>
           <div>
-            <strong style="font-size: 0.96rem; color: #0f172a;">WhatsApp Sales Outreach & AI Closer</strong>
-            <div style="font-size: 0.68rem; color: #64748b;">Pilih Template Standar Cepat atau Racik AI Khusus Sesuai Nama Toko & Promo</div>
+            <strong style="font-size: 0.96rem; color: #0f172a;">Kirim Pesan WhatsApp</strong>
+            <div style="font-size: 0.7rem; color: #64748b;">Pilih template siap pakai, tulis manual dari nol, atau tambahkan produk penawaran</div>
           </div>
         </div>
-        <button class="btn-icon-toggle btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+        <button type="button" class="btn-icon-toggle btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
-      <!-- Outreach Mode Tabs (Mutually Exclusive: Template Standar vs AI Gemini) -->
-      <div class="outreach-mode-tabs">
-        <button type="button" class="outreach-tab-btn active" id="tab-btn-standard">
-          <i class="fa-solid fa-message"></i> 1. Template Standar (Cepat)
-        </button>
-        <button type="button" class="outreach-tab-btn tab-ai" id="tab-btn-gemini">
-          <i class="fa-solid fa-wand-magic-sparkles"></i> 2. Buat Pesan AI (Gemini)
-        </button>
-      </div>
-
-      <!-- Target Business Summary Card (Shared Context - Compact) -->
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+      <!-- Info Bisnis & Nomor Tujuan -->
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; align-items: center;">
         <div style="min-width: 0;">
-          <div style="font-size: 0.88rem; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="ai-modal-biz-name">Kopi Senja Utama</div>
-          <div style="font-size: 0.7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="ai-modal-biz-meta">
-            Cafe & Coffee Shop • Magelang Utara
-          </div>
+          <div style="font-size: 0.88rem; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="wa-comp-biz-name">Nama Tempat</div>
+          <div style="font-size: 0.7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="wa-comp-biz-meta">Kategori • Alamat</div>
         </div>
-        <span class="badge" style="background:#eff6ff; color:#2563eb; font-weight:600; font-size: 0.7rem; flex-shrink: 0;" id="ai-modal-biz-badge">Terverifikasi</span>
-      </div>
-
-      <!-- Data-Driven Opportunity Detector (Multi-Checklist, Clean Single Line) -->
-      <div id="ai-modal-opp-section" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px;">
-        <div class="d-flex justify-between align-center" style="margin-bottom: 6px;">
-          <span style="font-size: 0.7rem; font-weight: 700; color: #0f172a; text-transform: uppercase; letter-spacing: 0.3px;">
-            Peluang Bisnis Berdasarkan Data
-          </span>
-          <span id="opp-count-badge" class="badge" style="background: #f1f5f9; color: #475569; font-size: 0.66rem; font-weight: 600;">
-            0 Terdeteksi
-          </span>
-        </div>
-        <div id="opp-checklist-container" style="display: flex; flex-direction: column; gap: 4px;">
-          <!-- Dynamically populated 1-row items via JS -->
+        <div>
+          <label for="wa-comp-phone" style="font-size: 0.65rem; font-weight: 700; color: #475569; display: block; margin-bottom: 2px;">Nomor WhatsApp Tujuan</label>
+          <input type="text" id="wa-comp-phone" class="form-input" placeholder="0812xxxxxxxx" style="font-size: 0.76rem; height: 32px; padding: 4px 8px;">
         </div>
       </div>
 
-      <!-- ==============================================================
-           PANEL 1: TEMPLATE STANDAR (Sesuai Template Awal, Cepat & Praktis)
-           ============================================================== -->
-      <div id="outreach-panel-standard">
-        <div class="form-group" style="margin-bottom: 8px;">
-          <label class="form-label" style="font-size: 0.72rem;">Pilihan Gaya Sapaan Cepat</label>
-          <select id="standard-greeting-select" class="form-select" style="font-size: 0.75rem;">
-            <option value="formal">Formal: Hallo kak dgn pemilik/manajemen {nama_tempat}?</option>
-            <option value="humas">Resmi Humas: Selamat siang bapak/ibu bagian manajemen & kemitraan {nama_tempat}.</option>
-            <option value="casual">Santai Bersahabat: Halo kak {nama_tempat}! Salam kenal dari tim cliento.</option>
+      <!-- Pilih & Sortir Template / Mode Dari Nol -->
+      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; margin-bottom: 12px; background: #ffffff;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+          <span style="font-size: 0.75rem; font-weight: 700; color: #0f172a;">
+            <i class="fa-solid fa-list-check" style="color: #2563eb;"></i> Pilih Template dari Menu Template Pesan
+          </span>
+          <button type="button" id="btn-wa-comp-blank" class="btn btn-outline btn-sm" style="font-size: 0.71rem; padding: 4px 9px; color: #0f172a;">
+            <i class="fa-regular fa-file"></i> Tanpa Template (Buat dari Nol)
+          </button>
+        </div>
+
+        <div style="display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;">
+          <input type="text" id="wa-comp-tpl-search" class="form-input" placeholder="Cari template kategori..." style="flex: 1; min-width: 160px; font-size: 0.74rem; height: 32px;">
+          <select id="wa-comp-tpl-sort" class="form-select" style="width: auto; min-width: 175px; font-size: 0.73rem; height: 32px; padding: 4px 8px;">
+            <option value="match">Cocok &amp; Tersimpan Dulu</option>
+            <option value="saved">Template Tersimpan Dulu</option>
+            <option value="az">Urutkan: A - Z</option>
+            <option value="za">Urutkan: Z - A</option>
           </select>
         </div>
 
-        <div class="form-group">
-          <label class="form-label" style="font-size: 0.72rem;">Naskah Pesan WhatsApp Terpersonalisasi</label>
-          <textarea id="standard-pitch-output" class="form-textarea" rows="6" style="font-size: 0.78rem;"></textarea>
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px;">
-          <button class="btn btn-outline btn-close-modal" style="font-size: 0.78rem;">Tutup</button>
-          <div style="display: flex; gap: 6px;">
-            <button class="btn btn-outline btn-sm" id="btn-copy-standard-output" style="font-size: 0.76rem;">
-              <i class="fa-solid fa-copy"></i> Salin Pesan
-            </button>
-            <a id="btn-wa-standard-output" href="#" target="_blank" class="btn btn-wa btn-sm" style="font-size: 0.76rem;">
-              <i class="fa-brands fa-whatsapp"></i> Buka WhatsApp
-            </a>
-          </div>
-        </div>
+        <div id="wa-comp-tpl-list" class="wa-composer-tpl-list"></div>
       </div>
 
-      <!-- ==============================================================
-           PANEL 2: GEMINI AI MULTIMODAL & CLOSING PROMPT GENERATOR
-           ============================================================== -->
-      <div id="outreach-panel-gemini" style="display: none;">
-        
-        <!-- Editable Target Info -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
-          <div>
-            <label style="font-size: 0.68rem; color: #475569; font-weight: 600; display:block; margin-bottom: 2px;">
-              Nama Toko / Bisnis Sasaran
-            </label>
-            <input type="text" id="ai-input-biz-name" class="form-input" style="font-size: 0.76rem; padding: 6px 8px;">
-          </div>
-          <div>
-            <label style="font-size: 0.68rem; color: #475569; font-weight: 600; display:block; margin-bottom: 2px;">
-              Layanan / Produk Penawaran Anda
-            </label>
-            <select id="ai-modal-service-select" class="form-select" style="font-size: 0.76rem; padding: 6px 8px;">
-              <option value="Jasa Optimasi Google Maps & Review Booster">Jasa Optimasi Gmaps & Review</option>
-              <option value="Jasa Pembuatan Website & Landing Page Profesional">Pembuatan Website & Landing Page</option>
-              <option value="Jasa Kelola Media Sosial & Iklan Berbayar">Kelola Medsos & Iklan</option>
-              <option value="Jasa Foto & Video Konten Promosi Produk">Foto & Video Konten Kreatif</option>
-              <option value="Suplier Bahan Baku & Perlengkapan Bisnis Berkualitas">Suplier Bahan Baku & Stok</option>
-              <option value="Sistem POS Kasir Online & Manajemen Usaha">Software / POS Kasir Digital</option>
-              <option value="Kemitraan Usaha & Kerjasama Bisnis">Kemitraan & Kerjasama</option>
-            </select>
-          </div>
+      <!-- Sisipkan Produk yang Didaftarkan di Template Pesan -->
+      <div style="border: 1px solid #d1fae5; background: #f0fdf4; border-radius: 10px; padding: 10px; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+          <label for="wa-comp-product-select" style="font-size: 0.75rem; font-weight: 700; color: #065f46; margin: 0;">
+            <i class="fa-solid fa-box-open"></i> Tambah Produk / Layanan yang Ditawarkan (Opsional)
+          </label>
+          <span id="wa-comp-product-hint" style="font-size: 0.67rem; color: #047857;">Diambil dari menu Template Pesan</span>
         </div>
 
-        <!-- Psychological Need Triggers (Membuat Pelanggan Merasa Butuh) -->
-        <div class="form-group" style="margin-bottom: 10px;">
-          <label class="form-label" style="font-size: 0.7rem; color: #1e3a8a;">
-            <span><i class="fa-solid fa-bullseye" style="color: #ea580c;"></i> Trigger Kebutuhan (Buat Pelanggan Merasa Butuh)</span>
-          </label>
-          <select id="ai-modal-pain-select" class="form-select" style="font-size: 0.75rem; padding: 6px 8px;">
-            <option value="Peringkat Google Maps belum di 3 besar & kompetitor di sekitar lebih ramai pengunjung">
-              Kompetitor lokal lebih ramai di jam sibuk & ranking Google Maps belum #1
-            </option>
-            <option value="Jumlah ulasan masih sedikit atau ada review negatif yang belum ditangani profesional">
-              Ulasan Google Maps masih sedikit atau ada review negatif belum direspon
-            </option>
-            <option value="Belum memiliki website resmi atau portofolio digital sehingga calon pembeli ragu">
-              Belum punya website resmi sehingga calon pembeli ragu memilih toko ini
-            </option>
-            <option value="Ingin menambah omset harian dan hemat jutaan rupiah dari biaya iklan Meta/Google Ads">
-              Ingin omset naik drastis tapi hemat biaya iklan berbayar yang mahal
-            </option>
-            <option value="Promo khusus pelanggan baru terbatas hanya untuk 3 pelaku usaha terpilih bulan ini">
-              Penawaran terbatas / urgensi kuota khusus pelaku usaha pilihan bulan ini
-            </option>
+        <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+          <select id="wa-comp-product-select" class="form-select" style="flex: 1; min-width: 200px; font-size: 0.75rem; height: 34px; background: #ffffff;">
+            <option value="">-- Pilih produk / layanan terdaftar --</option>
           </select>
+          <button type="button" id="btn-wa-comp-insert-product" class="btn btn-primary btn-sm" style="background: #059669; border-color: #059669; font-size: 0.73rem; white-space: nowrap;">
+            <i class="fa-solid fa-plus"></i> Sisipkan ke Pesan
+          </button>
         </div>
 
-        <!-- Special Offer & Tone -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
-          <div>
-            <label style="font-size: 0.68rem; color: #475569; font-weight: 600; display:block; margin-bottom: 2px;">
-              Tawaran Menarik / Lead Magnet
-            </label>
-            <input type="text" id="ai-modal-offer-input" class="form-input" style="font-size: 0.75rem; padding: 6px 8px;"
-                   value="Free Audit Profil Google Maps 10 Menit & Diskon Promo 50%">
-          </div>
-
-          <div>
-            <label style="font-size: 0.68rem; color: #475569; font-weight: 600; display:block; margin-bottom: 2px;">
-              Gaya Bahasa / Tone
-            </label>
-            <select id="ai-modal-tone-select" class="form-select" style="font-size: 0.75rem; padding: 6px 8px;">
-              <option value="Hangat, Sopan & Profesional">Hangat, Sopan & Profesional (Perkenalan Tulus)</option>
-              <option value="Santai, Akrab & Bersahabat">Santai, Akrab & Bersahabat (Cocok utk Cafe/Anak Muda)</option>
-              <option value="Konsultatif & Memberi Solusi Nyata">Konsultatif & Berorientasi Solusi Nyata</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- ==============================================================
-             FEATURE: UPLOAD GAMBAR PROMOSI / FLYER (Gemini Multimodal Vision)
-             ============================================================== -->
-        <div class="form-group" style="margin-bottom: 12px;">
-          <label class="form-label" style="font-size: 0.7rem; color: #0f172a;">
-            <span><i class="fa-solid fa-image" style="color: #2563eb;"></i> Unggah Gambar Promosi / Flyer / Brosur (Opsional)</span>
-            <span style="font-size: 0.65rem; color: #2563eb; font-weight: 600;">Multimodal AI Vision</span>
-          </label>
-          
-          <!-- Dropzone -->
-          <div class="promo-dropzone" id="promo-image-dropzone">
-            <input type="file" id="promo-image-file" accept="image/png, image/jpeg, image/webp" style="display: none;">
-            <i class="fa-solid fa-cloud-arrow-up" style="font-size: 1.5rem; color: #3b82f6; margin-bottom: 4px;"></i>
-            <div style="font-size: 0.74rem; font-weight: 600; color: #1e3a8a;">
-              Klik untuk Pilih Gambar atau Seret (Drag & Drop) Foto Flyer Promosi
-            </div>
-            <div style="font-size: 0.66rem; color: #64748b; margin-top: 2px;">
-              Mendukung JPG, PNG, WebP (Brosur, daftar harga, banner diskon, portofolio)
-            </div>
-          </div>
-
-          <!-- Uploaded Preview Card -->
-          <div id="promo-image-preview-card" class="promo-preview-card" style="display: none;">
-            <img id="promo-image-thumb" src="" alt="Thumbnail Promo" class="promo-preview-thumb">
-            <div style="flex: 1; min-width: 0;">
-              <div style="font-size: 0.76rem; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="promo-image-filename">
-                flyer_promo.jpg
-              </div>
-              <div style="font-size: 0.66rem; color: #16a34a; font-weight: 600;">
-                <i class="fa-solid fa-circle-check"></i> Gambar siap dianalisis oleh Gemini AI Vision
-              </div>
-            </div>
-            <button type="button" class="btn btn-outline btn-sm" id="btn-remove-promo-image" style="font-size: 0.7rem; padding: 4px 8px; color: #dc2626;">
-              <i class="fa-solid fa-trash"></i> Hapus
-            </button>
-          </div>
-        </div>
-
-        <!-- Generate Action Button -->
-        <button class="btn btn-primary btn-block" id="btn-run-gemini-pitch" 
-                style="margin-bottom: 12px; padding: 10px; font-size: 0.84rem; background: linear-gradient(135deg, #2563eb, #7c3aed); border: none; box-shadow: 0 4px 12px rgba(37,99,235,0.25);">
-          <i class="fa-solid fa-wand-magic-sparkles"></i> Racik Naskah Closing Otomatis dengan Gemini AI
-        </button>
-
-        <!-- AI Pitch Output Area -->
-        <div class="form-group">
-          <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-size: 0.72rem; font-weight: 700;">Naskah Pesan WhatsApp AI (Siap Kirim / Edit)</span>
-            <span id="ai-pitch-status" style="font-size: 0.68rem; font-weight: 600;"></span>
-          </label>
-          <textarea id="ai-pitch-output" class="form-textarea" rows="6" style="font-size: 0.78rem;"
-                    placeholder="Klik tombol racik di atas, Gemini AI akan membuatkan pesan ramah & persuasif khusus toko ini..."></textarea>
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px;">
-          <button class="btn btn-outline btn-close-modal" style="font-size: 0.78rem;">Tutup</button>
-          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-            <button class="btn btn-outline btn-sm" id="btn-save-ai-to-templates" style="font-size: 0.76rem;" title="Simpan naskah ini ke koleksi template">
-              <i class="fa-solid fa-floppy-disk"></i> Simpan ke Template
-            </button>
-            <button class="btn btn-outline btn-sm" id="btn-copy-ai-output" style="font-size: 0.76rem;">
-              <i class="fa-solid fa-copy"></i> Salin Pesan
-            </button>
-            <a id="btn-wa-ai-output" href="#" target="_blank" class="btn btn-wa btn-sm" style="font-size: 0.76rem;">
-              <i class="fa-brands fa-whatsapp"></i> Buka WhatsApp
-            </a>
-          </div>
-        </div>
-
+        <textarea id="wa-comp-product-sentence" class="form-textarea" rows="2" placeholder="Kalimat tambahan penawaran produk akan disiapkan di sini (bebas disesuaikan sebelum disisipkan)..." style="font-size: 0.73rem; background: #ffffff;"></textarea>
       </div>
 
+      <!-- Editor Pesan Manual + Variabel -->
+      <div class="form-group" style="margin-bottom: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 6px;">
+          <label for="wa-comp-message" class="form-label" style="font-size: 0.75rem; margin: 0;">Isi Pesan WhatsApp (Bebas Ubah Manual / Buat Sendiri)</label>
+          <span id="wa-comp-status" style="font-size: 0.7rem; font-weight: 600; color: #2563eb;"></span>
+        </div>
+        <textarea id="wa-comp-message" class="form-textarea" rows="7" placeholder="Ketik pesan WhatsApp Anda dari nol, atau pilih template di atas lalu ubah sesuai kebutuhan..." style="font-size: 0.8rem; line-height: 1.5;"></textarea>
+
+        <div style="margin-top: 8px;">
+          <span style="font-size: 0.7rem; color: #64748b; font-weight: 600;">Sisipkan Variabel Data Tempat Ini:</span>
+          <div class="variable-chips" id="wa-comp-var-chips">
+            <span class="var-chip wa-comp-var-chip" data-tag="{nama_tempat}">+ {nama_tempat}</span>
+            <span class="var-chip wa-comp-var-chip" data-tag="{kategori}">+ {kategori}</span>
+            <span class="var-chip wa-comp-var-chip" data-tag="{alamat}">+ {alamat}</span>
+            <span class="var-chip wa-comp-var-chip" data-tag="{rating}">+ {rating}</span>
+            <span class="var-chip wa-comp-var-chip" data-tag="{telepon}">+ {telepon}</span>
+            <span class="var-chip wa-comp-var-chip" data-tag="{produk}" style="background: #ecfdf5; color: #059669; border-color: #a7f3d0;">+ {produk}</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+        <button type="button" class="btn btn-outline btn-close-modal" style="font-size: 0.78rem;">Tutup</button>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline btn-sm" id="btn-wa-comp-save-tpl" style="font-size: 0.74rem;" title="Simpan isi pesan ini sebagai template kategori bisnis ini">
+            <i class="fa-solid fa-floppy-disk"></i> Simpan ke Template
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-wa-comp-copy" style="font-size: 0.76rem;">
+            <i class="fa-solid fa-copy"></i> Salin Pesan
+          </button>
+          <button type="button" class="btn btn-wa btn-sm" id="btn-wa-comp-send" style="font-size: 0.78rem;">
+            <i class="fa-brands fa-whatsapp"></i> Kirim WhatsApp Sekarang
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -2054,10 +1993,7 @@
           <button class="btn btn-outline btn-sm" id="btn-copy-360-summary" style="font-size: 0.8rem;">
             <i class="fa-solid fa-copy"></i> Salin Rincian
           </button>
-          <button class="btn btn-primary btn-sm" id="btn-jump-to-ai-pitch" style="background: #2563eb; border: none; font-size: 0.8rem;">
-            <i class="fa-solid fa-wand-magic-sparkles"></i> Buat Pesan AI
-          </button>
-          <a href="#" target="_blank" class="btn btn-wa btn-sm" id="btn-wa-360-direct" style="font-size: 0.8rem;">
+          <a href="#" class="btn btn-wa btn-sm" id="btn-wa-360-direct" style="font-size: 0.8rem;">
             <i class="fa-brands fa-whatsapp"></i> Chat WhatsApp
           </a>
         </div>
@@ -2596,10 +2532,10 @@
   <!-- Application Modules -->
   <script src="assets/js/regions_data.js?v=20261001_v39"></script>
   <script src="assets/js/map.js?v=20261001_v39"></script>
-  <script src="assets/js/templates.js?v=20261001_v39"></script>
-  <script src="assets/js/archives.js?v=20261001_v39"></script>
-  <script src="assets/js/scraper.js?v=20261126_v42"></script>
-  <script src="assets/js/data_manager.js?v=20261001_v39"></script>
+  <script src="assets/js/templates.js?v=20261127_v43"></script>
+  <script src="assets/js/archives.js?v=20261127_v43"></script>
+  <script src="assets/js/scraper.js?v=20261127_v43"></script>
+  <script src="assets/js/data_manager.js?v=20261127_v43"></script>
   <script src="assets/js/auth.js?v=20261126_v42"></script>
   <script src="assets/js/customers.js?v=20261001_v39"></script>
   <script src="assets/js/app.js?v=20261126_v42"></script>
